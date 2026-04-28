@@ -40,7 +40,7 @@ This project is a weekly monitoring script for personal research. It tracks both
 安装示例：
 
 ```bash
-pip install pandas requests pyyaml
+pip install -r requirements.txt
 ```
 
 ### 快速开始
@@ -182,6 +182,7 @@ It is suitable for local execution, scheduled runs on a server, or Windows Task 
 - `config/etf_products.json`: fund watchlist
 - `run_monitor.bat`: one-click launcher for Windows
 - `validate_assets.bat`: one-click validation for Windows
+- `output/`: local output directory generated after execution and should not be committed
 
 ### Requirements
 
@@ -202,10 +203,22 @@ Run validation first:
 python scriptsvalidate_strategy_assets.py
 ```
 
+Or double-click:
+
+```text
+validate_assets.bat
+```
+
 Then run the monitor:
 
 ```bash
 python binance_etf_configurable.py
+```
+
+Or double-click:
+
+```text
+run_monitor.bat
 ```
 
 On Linux servers you can also use:
@@ -215,29 +228,41 @@ chmod +x run_monitor.sh
 ./run_monitor.sh
 ```
 
-### Output and Privacy
+### Output Files
 
-Generated files under `output/` may include:
+After running the monitor, local files will be created under `output/`, for example:
 
-- runtime logs
-- strategy reports
-- locally accumulated history data
-- machine-specific path traces in logs
+- `output/logs/binance_etf.log`
+- `output/data/fund_history.json`
+- `output/reports/strategy_report_YYYY-MM-DD.md`
+- `output/reports/strategy_report_YYYY-MM-DD.txt`
 
-These files are for local use only and should not be committed to a repository. The provided `.gitignore` is configured to exclude them.
+These files may include your observation results, execution habits, local history, or machine-specific path information. Keep them local and do not commit them.
 
 ### Configuration Notes
 
 - edit `config/etf_products.json` to change funds
 - edit `config/crypto_products.json` to change crypto assets
 - edit `config/strategy_config.yaml` to change thresholds, providers, network behavior, and output paths
+- modify `crypto.providers` to change crypto data source priority
+- modify `fund.providers` to change fund data source priority
+
+### Privacy and Security
+
+This repository is organized with a "do not leak by default" principle:
+
+- `output/`, logs, reports, caches, and history data should stay excluded by `.gitignore`
+- `.env`, private keys, tokens, and credential files should never be version-controlled
+- no hard-coded personal API key is currently included in the project
+- if you later add private notification channels, webhooks, or cloud secrets, store them in environment variables instead of source files or example configs
 
 ### GitHub Upload Checklist
 
 Before pushing this project to GitHub, make sure that:
 
-- there are no generated files under `output/`
-- there is no `.env` file or any private key, token, certificate, or credential file
+- there are no reports, logs, or history files left under `output/`
+- there is no `.env` file, private key, certificate, or private script copy in the repository
+- there are no screenshots containing local absolute paths, exported reports, or manual backup files
 - only the active config files under `config/` are kept
 - you run the validator before upload:
 
@@ -253,11 +278,33 @@ git add .
 git diff --cached
 ```
 
+Pay special attention to make sure the staged set does not contain `output/`, `.env`, logs, reports, or any other private files.
+
 ### Scheduling
 
 - Windows: use Task Scheduler with `run_monitor.bat`
 - Linux: use `cron` with `run_monitor.sh`
-- an example cron entry is included in `cron.example`
+- `cron.example` is included; it demonstrates running the main program at 18:30 from Monday to Friday
+
+Recommended setup:
+
+```bash
+pip install -r requirements.txt
+chmod +x run_monitor.sh
+crontab -e
+```
+
+Then replace the sample path in `cron.example` with your actual deployment directory and add it to crontab.
+
+### Validation Coverage
+
+`scriptsvalidate_strategy_assets.py` checks:
+
+- whether the config file structure is complete
+- whether the fund list format is valid and whether codes are duplicated
+- whether the crypto asset list format is valid and whether symbols are duplicated
+- whether fund category rules match the configured thresholds
+- whether generated runtime artifacts exist in the project and should be kept out of version control
 
 ## License
 
