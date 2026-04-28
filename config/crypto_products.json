@@ -1,0 +1,5 @@
+[
+  {"symbol": "BTC", "name": "比特币"},
+  {"symbol": "ETH", "name": "以太坊"},
+  {"symbol": "SOL", "name": "Solana"}
+]

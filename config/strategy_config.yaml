@@ -1,0 +1,66 @@
+timezone: "Asia/Shanghai"
+work_dir: "output"
+
+paths:
+  log_file: "logs/binance_etf.log"
+  history_file: "data/fund_history.json"
+  etf_products_file: "config/etf_products.json"
+  crypto_products_file: "config/crypto_products.json"
+
+network:
+  timeout_connect: 3.05
+  timeout_read: 12
+  retry_total: 4
+  backoff_factor: 0.8
+  status_forcelist: [429, 500, 502, 503, 504]
+  user_agent: "Mozilla/5.0 (Binance ETF Monitor)"
+
+crypto:
+  providers: ["binance", "kucoin"]
+  interval: "1w"
+  kline_limit: 260
+  rsi_period: 14
+  bb_period: 20
+  bb_std: 2.0
+  ma_fast: 20
+  ma_slow: 60
+  vol_scale: 4.0
+  score_thresholds:
+    strong_buy: 0.60
+    buy: 0.20
+    sell: -0.20
+    strong_sell: -0.60
+
+fund:
+  providers: ["fundgz", "eastmoney_f10"]
+  category_rules:
+    QDII:
+      include_keywords: ["QDII", "纳斯达克", "标普", "恒生", "港股", "海外", "美股"]
+    债基:
+      include_keywords: ["债", "债券", "中短债", "短债", "纯债", "可转债"]
+    行业:
+      include_keywords: ["医药", "创新药", "军工", "芯片", "半导体", "煤炭", "钢铁", "人工智能", "游戏", "消费", "白酒", "新能源", "电池", "科技"]
+    宽基:
+      include_keywords: []
+
+  thresholds:
+    QDII:
+      daily_hot: 2.5
+      daily_cold: -2.0
+      weekly_hot: 6.0
+      weekly_cold: -5.0
+    债基:
+      daily_hot: 0.8
+      daily_cold: -0.8
+      weekly_hot: 1.5
+      weekly_cold: -1.5
+    行业:
+      daily_hot: 3.0
+      daily_cold: -2.5
+      weekly_hot: 7.0
+      weekly_cold: -6.0
+    宽基:
+      daily_hot: 2.0
+      daily_cold: -1.8
+      weekly_hot: 4.5
+      weekly_cold: -4.0

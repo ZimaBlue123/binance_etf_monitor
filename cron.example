@@ -1,0 +1,3 @@
+# Example: run every weekday at 18:30
+# Adjust the path to your actual deployment directory.
+30 18 * * 1-5 cd /path/to/13-binance_etf_monitor && /usr/bin/python3 binance_etf_configurable.py >> output/logs/cron.log 2>&1

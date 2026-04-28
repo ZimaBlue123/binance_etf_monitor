@@ -1,0 +1,46 @@
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+
+# Environment and secrets
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+
+# Runtime artifacts
+output/
+logs/
+reports/
+data/
+tmp/
+temp/
+*.log
+
+# Local databases and caches
+*.sqlite
+*.sqlite3
+*.db
+*.cache
