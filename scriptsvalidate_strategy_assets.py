@@ -12,7 +12,7 @@
 5) crypto_products.json 格式正确、币种唯一、symbol 格式合法
 6) 基金名称非空
 7) 分类命中率统计（QDII/债基/行业/宽基）
-8) 阈值字段完整且 daily_hot > daily_cold, weekly_hot > weekly_cold
+8) 阈值字段完整且 daily_hot > daily_cold
 9) 检查 output 等运行产物，提醒不要提交私有报告/日志/历史数据
 10) 输出校验报告，异常时非0退出码
 """
@@ -29,7 +29,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = BASE_DIR / "config" / "strategy_config.yaml"
 REQUIRED_TOP_LEVEL = ["timezone", "work_dir", "paths", "network", "crypto", "fund"]
 REQUIRED_PATHS = ["log_file", "history_file", "etf_products_file", "crypto_products_file"]
-REQUIRED_THRESH_KEYS = ["daily_hot", "daily_cold", "weekly_hot", "weekly_cold"]
+REQUIRED_THRESH_KEYS = ["daily_hot", "daily_cold"]
 RUNTIME_ARTIFACT_PATTERNS = [
     "output/reports/*.md",
     "output/reports/*.txt",
@@ -77,8 +77,6 @@ def validate_thresholds(thresholds: Dict[str, dict]) -> List[str]:
         if all(k in conf for k in REQUIRED_THRESH_KEYS):
             if conf["daily_hot"] <= conf["daily_cold"]:
                 errors.append(f"[thresholds] `{cat}` daily_hot 必须 > daily_cold")
-            if conf["weekly_hot"] <= conf["weekly_cold"]:
-                errors.append(f"[thresholds] `{cat}` weekly_hot 必须 > weekly_cold")
     return errors
 
 

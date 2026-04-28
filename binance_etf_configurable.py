@@ -105,6 +105,9 @@ class QuantReporter:
         self.session = self._build_session()
         self.crypto_products = load_json(str(self.crypto_file))
         self.etf_products = load_json(str(self.etf_file))
+        self.max_neutral_funds_in_report = int(
+            self.cfg.get("fund", {}).get("report", {}).get("max_neutral_items", 20)
+        )
 
     def _resolve_path(self, raw_path: str) -> Path:
         p = Path(raw_path).expanduser()
@@ -177,7 +180,7 @@ class QuantReporter:
         return pd.Series(vals).dropna()
 
     # -------- crypto --------
-    def _fetch_crypto_weekly_ohlcv_binance(self, symbol: str) -> Optional[pd.DataFrame]:
+    def _fetch_crypto_daily_ohlcv_binance(self, symbol: str) -> Optional[pd.DataFrame]:
         ccfg = self.cfg["crypto"]
         url = "https://api.binance.com/api/v3/klines"
         params = {"symbol": f"{symbol}USDT", "interval": ccfg["interval"], "limit": ccfg["kline_limit"]}
@@ -197,13 +200,13 @@ class QuantReporter:
             } for x in data]
             return pd.DataFrame(rows)
         except Exception as e:
-            self.logger.error(f"[-] 解析 Binance 周K失败 {symbol}: {e}")
+            self.logger.error(f"[-] 解析 Binance 日K失败 {symbol}: {e}")
             return None
 
-    def _fetch_crypto_weekly_ohlcv_kucoin(self, symbol: str) -> Optional[pd.DataFrame]:
+    def _fetch_crypto_daily_ohlcv_kucoin(self, symbol: str) -> Optional[pd.DataFrame]:
         ccfg = self.cfg["crypto"]
         url = "https://api.kucoin.com/api/v1/market/candles"
-        params = {"type": "1week", "symbol": f"{symbol}-USDT"}
+        params = {"type": "1day", "symbol": f"{symbol}-USDT"}
         res = self.safe_fetch(url, params=params)
         if not res:
             return None
@@ -221,17 +224,17 @@ class QuantReporter:
             } for x in reversed(data)]
             return pd.DataFrame(rows)
         except Exception as e:
-            self.logger.error(f"[-] 解析 KuCoin 周K失败 {symbol}: {e}")
+            self.logger.error(f"[-] 解析 KuCoin 日K失败 {symbol}: {e}")
             return None
 
-    def fetch_crypto_weekly_ohlcv(self, symbol: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
+    def fetch_crypto_daily_ohlcv(self, symbol: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
         providers: List[str] = self.cfg["crypto"].get("providers", ["binance", "kucoin"])
         for provider in providers:
             provider_key = str(provider).strip().lower()
             if provider_key == "binance":
-                df = self._fetch_crypto_weekly_ohlcv_binance(symbol)
+                df = self._fetch_crypto_daily_ohlcv_binance(symbol)
             elif provider_key == "kucoin":
-                df = self._fetch_crypto_weekly_ohlcv_kucoin(symbol)
+                df = self._fetch_crypto_daily_ohlcv_kucoin(symbol)
             else:
                 self.logger.warning(f"[!] 未识别的加密数据源，已跳过: {provider}")
                 continue
@@ -242,13 +245,13 @@ class QuantReporter:
 
         return None, None
 
-    def weekly_decision_engine(self, df: pd.DataFrame) -> Tuple[str, float, Dict]:
+    def daily_decision_engine(self, df: pd.DataFrame) -> Tuple[str, float, Dict]:
         ccfg = self.cfg["crypto"]
         th = ccfg["score_thresholds"]
 
         close, high, low, vol = df["close"], df["high"], df["low"], df["volume"]
         c, c_prev = close.iloc[-1], close.iloc[-2]
-        weekly_change = ((c - c_prev) / c_prev * 100) if c_prev > 0 else 0.0
+        daily_change = ((c - c_prev) / c_prev * 100) if c_prev > 0 else 0.0
 
         ma_fast = close.rolling(ccfg["ma_fast"]).mean().iloc[-1]
         ma_slow = close.rolling(ccfg["ma_slow"]).mean().iloc[-1]
@@ -302,21 +305,21 @@ class QuantReporter:
             advice, pos = "⚪ 中性震荡（等待确认）", "30%-50%"
 
         return advice, score, {
-            "price": c, "weekly_change": weekly_change, "rsi": rsi, "zscore": z,
+            "price": c, "daily_change": daily_change, "rsi": rsi, "zscore": z,
             "score": score, "vol_ratio": vol_ratio, "trend_up": trend_up, "position": pos
         }
 
     def analyze_crypto(self, name: str, symbol: str) -> Tuple[Optional[str], Optional[float], Optional[str]]:
-        df, provider = self.fetch_crypto_weekly_ohlcv(symbol)
+        df, provider = self.fetch_crypto_daily_ohlcv(symbol)
         if df is None or df.empty:
             return None, None, None
-        advice, _, d = self.weekly_decision_engine(df)
+        advice, _, d = self.daily_decision_engine(df)
         provider_text = (provider or "unknown").upper()
         msg = (
-            f"- **{name} ({symbol})**: {d['price']:.2f} | 周变动 **{d['weekly_change']:+.2f}%** | {advice}\n"
+            f"- **{name} ({symbol})**: {d['price']:.2f} | 日变动 **{d['daily_change']:+.2f}%** | {advice}\n"
             f"  - 信号: score={d['score']:+.2f}, RSI={d['rsi']:.1f}, z={d['zscore']:+.2f}, "
             f"量比={d['vol_ratio']:.2f}, 趋势={'上行' if d['trend_up'] else '下行/震荡'}, 数据源={provider_text}\n"
-            f"  - 风控: 建议仓位 {d['position']}（周级策略，最小观察周期>=2周）"
+            f"  - 风控: 建议仓位 {d['position']}（日级观察，最小观察周期>=2天）"
         )
         return msg, d["price"], provider
 
@@ -390,21 +393,17 @@ class QuantReporter:
 
         return None, None, None
 
-    def fund_weekly_metrics(self, hist: Dict, key: str, current_price: float) -> Dict:
+    def fund_metrics(self, hist: Dict, key: str, current_price: float) -> Dict:
         s = self.history_series(hist, key)
         s2 = pd.concat([s, pd.Series([current_price])], ignore_index=True) if len(s) > 0 else pd.Series([current_price])
-        out = {"weekly_change": None, "ma5": None, "ma20": None}
-        if len(s2) >= 6:
-            base = s2.iloc[-6]
-            if base > 0:
-                out["weekly_change"] = (s2.iloc[-1] - base) / base * 100
+        out = {"ma5": None, "ma20": None}
         if len(s2) >= 5:
             out["ma5"] = s2.iloc[-5:].mean()
         if len(s2) >= 20:
             out["ma20"] = s2.iloc[-20:].mean()
         return out
 
-    def fund_advice(self, category: str, daily_change: float, weekly_change, ma5, ma20, price) -> Tuple[str, str]:
+    def fund_advice(self, category: str, daily_change: float, ma5, ma20, price) -> Tuple[str, str]:
         th = self.cfg["fund"]["thresholds"][category]
         trend = "中性"
         if ma5 is not None and ma20 is not None:
@@ -413,8 +412,8 @@ class QuantReporter:
             elif price < ma5 <= ma20:
                 trend = "下行"
 
-        hot = daily_change >= th["daily_hot"] or (weekly_change is not None and weekly_change >= th["weekly_hot"])
-        cold = daily_change <= th["daily_cold"] or (weekly_change is not None and weekly_change <= th["weekly_cold"])
+        hot = daily_change >= th["daily_hot"]
+        cold = daily_change <= th["daily_cold"]
 
         if hot and trend == "上行":
             return "🔴 偏热（分批止盈/降仓）", f"{category}阈值触发 + 上行后高位"
@@ -426,38 +425,49 @@ class QuantReporter:
             return "🟡 偏冷但趋势弱（观察）", f"{category}阈值触发 + 下行趋势"
         return "⚪ 区间中性", f"{category}阈值未触发"
 
-    def analyze_fund(self, name: str, code: str, hist: Dict) -> Tuple[Optional[str], Optional[float], Optional[str]]:
+    def fund_bucket(self, advice: str) -> str:
+        if "偏热" in advice:
+            return "hot"
+        if "偏冷" in advice:
+            return "cold"
+        return "neutral"
+
+    def analyze_fund(self, name: str, code: str, hist: Dict) -> Tuple[Optional[str], Optional[float], Optional[str], Optional[str]]:
         price, daily_change, provider = self.fetch_fund_estimate(code)
         if price is None:
-            return None, None, None
+            return None, None, None, None
 
         category = self.classify_fund(name)
-        m = self.fund_weekly_metrics(hist, f"FUND_{code}", price)
-        advice, reason = self.fund_advice(category, daily_change, m["weekly_change"], m["ma5"], m["ma20"], price)
+        m = self.fund_metrics(hist, f"FUND_{code}", price)
+        advice, reason = self.fund_advice(category, daily_change, m["ma5"], m["ma20"], price)
         provider_text = (provider or "unknown").upper()
 
-        week_txt = "N/A" if m["weekly_change"] is None else f"{m['weekly_change']:+.2f}%"
         ma_txt = "N/A" if m["ma5"] is None or m["ma20"] is None else f"MA5={m['ma5']:.4f}, MA20={m['ma20']:.4f}"
 
         msg = (
-            f"- **{name} [{code}]** ({category}): {price:.4f} | 日变动 **{daily_change:+.2f}%** | 周变动 **{week_txt}** | {advice}\n"
+            f"- **{name} [{code}]** ({category}): {price:.4f} | 日变动 **{daily_change:+.2f}%** | {advice}\n"
             f"  - 诊断: {reason} | {ma_txt} | 数据源={provider_text}"
         )
-        return msg, price, provider
+        return msg, price, provider, self.fund_bucket(advice)
 
     def run(self):
-        self.logger.info("=== 🚀 周级中线量化监控启动（配置驱动）===")
+        self.logger.info("=== 🚀 日报监控启动（配置驱动）===")
         hist = self.load_history()
         today = datetime.now().strftime("%Y-%m-%d")
 
-        report = [f"📊 **中线周级策略日报 ({today})**\n"]
+        report = [f"📊 **策略日报 ({today})**\n"]
         valid_count = 0
         crypto_primary = str(self.cfg["crypto"].get("providers", ["binance"])[0]).strip().lower()
         fund_primary = str(self.cfg["fund"].get("providers", ["fundgz"])[0]).strip().lower()
         crypto_fallback_used = []
         fund_fallback_used = []
+        fund_sections = {
+            "hot": [],
+            "cold": [],
+            "neutral": [],
+        }
 
-        report.append("**[加密资产 | 周线多因子]**")
+        report.append("**[加密资产 | 日线多因子]**")
         for c in self.crypto_products:
             msg, price, provider = self.analyze_crypto(c["name"], c["symbol"])
             if msg:
@@ -469,13 +479,32 @@ class QuantReporter:
 
         report.append("\n**[基金 | 分类阈值模型（QDII/债基/行业/宽基）]**")
         for f in self.etf_products:
-            msg, price, provider = self.analyze_fund(f["name"], f["code"], hist)
+            msg, price, provider, bucket = self.analyze_fund(f["name"], f["code"], hist)
             if msg:
-                report.append(msg)
+                fund_sections[bucket or "neutral"].append(msg)
                 hist.setdefault(f"FUND_{f['code']}", {})[today] = price
                 valid_count += 1
                 if provider and provider != fund_primary:
                     fund_fallback_used.append(f"{f['name']}[{f['code']}] -> {provider.upper()}")
+
+        fund_group_titles = [
+            ("hot", "🔥 偏热"),
+            ("cold", "🧊 偏冷"),
+            ("neutral", "⚪ 中性"),
+        ]
+        for key, title in fund_group_titles:
+            items = fund_sections[key]
+            report.append(f"\n***{title}（{len(items)}）***")
+            if items:
+                if key == "neutral" and len(items) > self.max_neutral_funds_in_report:
+                    visible_items = items[:self.max_neutral_funds_in_report]
+                    hidden_count = len(items) - self.max_neutral_funds_in_report
+                    report.extend(visible_items)
+                    report.append(f"- 其余 {hidden_count} 条中性基金已省略，可按需查看明细文件")
+                else:
+                    report.extend(items)
+            else:
+                report.append("- 无")
 
         if valid_count == 0:
             self.logger.error("❌ 未获取到有效行情，退出。")

@@ -2,9 +2,9 @@
 
 > Language / 语言: [中文](#中文说明) | [English](#english-guide)
 
-一个面向个人研究场景的周级监控脚本，用于同时跟踪加密资产和基金，并输出当日策略报告。
+一个面向个人研究场景的日度监控脚本，用于同时跟踪加密资产和基金，并输出当日策略报告。
 
-This project is a weekly monitoring script for personal research. It tracks both crypto assets and funds, then generates a daily strategy report in Markdown and plain text.
+This project is a daily monitoring script for personal research. It tracks both crypto assets and funds, then generates a daily strategy report in Markdown and plain text.
 
 <a id="中文说明"></a>
 
@@ -16,7 +16,7 @@ This project is a weekly monitoring script for personal research. It tracks both
 
 - 读取 `config/strategy_config.yaml` 中的网络、阈值和路径配置
 - 读取 `config/crypto_products.json` 和 `config/etf_products.json` 中的资产清单
-- 拉取行情数据并生成周级观察结论
+- 拉取行情数据并生成日度观察结论
 - 将日志、历史数据和报告写入本地 `output/`
 
 适合本地运行、云主机定时执行、或接入任务计划程序。默认不依赖任何个人 API Key。

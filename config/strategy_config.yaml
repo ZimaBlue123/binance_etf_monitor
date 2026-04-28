@@ -16,8 +16,8 @@ network:
   user_agent: "Mozilla/5.0 (Binance ETF Monitor)"
 
 crypto:
-  providers: ["binance", "kucoin"]
-  interval: "1w"
+  providers: ["kucoin", "binance"]
+  interval: "1d"
   kline_limit: 260
   rsi_period: 14
   bb_period: 20
@@ -33,6 +33,8 @@ crypto:
 
 fund:
   providers: ["fundgz", "eastmoney_f10"]
+  report:
+    max_neutral_items: 20
   category_rules:
     QDII:
       include_keywords: ["QDII", "纳斯达克", "标普", "恒生", "港股", "海外", "美股"]
@@ -47,20 +49,12 @@ fund:
     QDII:
       daily_hot: 2.5
       daily_cold: -2.0
-      weekly_hot: 6.0
-      weekly_cold: -5.0
     债基:
       daily_hot: 0.8
       daily_cold: -0.8
-      weekly_hot: 1.5
-      weekly_cold: -1.5
     行业:
       daily_hot: 3.0
       daily_cold: -2.5
-      weekly_hot: 7.0
-      weekly_cold: -6.0
     宽基:
       daily_hot: 2.0
       daily_cold: -1.8
-      weekly_hot: 4.5
-      weekly_cold: -4.0
