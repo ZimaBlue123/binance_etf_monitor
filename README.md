@@ -1,8 +1,12 @@
 # Binance ETF Monitor
 
+> Language / 语言: [中文](#中文说明) | [English](#english-guide)
+
 一个面向个人研究场景的周级监控脚本，用于同时跟踪加密资产和基金，并输出当日策略报告。
 
 This project is a weekly monitoring script for personal research. It tracks both crypto assets and funds, then generates a daily strategy report in Markdown and plain text.
+
+<a id="中文说明"></a>
 
 ## 中文说明
 
@@ -153,6 +157,8 @@ crontab -e
 - 加密资产列表是否格式正确、symbol 是否重复
 - 基金分类规则与阈值是否一致
 - 项目中是否存在运行产物，提醒不要提交私有报告和日志
+
+<a id="english-guide"></a>
 
 ## English Guide
 
