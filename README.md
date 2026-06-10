@@ -158,6 +158,15 @@ crontab -e
 - 基金分类规则与阈值是否一致
 - 项目中是否存在运行产物，提醒不要提交私有报告和日志
 
+## 许可证
+
+本项目以 MIT 协议发布，详见 [LICENSE](./LICENSE)。
+
+## 进一步阅读
+
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — 提交规范与仓库卫生红线
+- [CHANGELOG.md](./CHANGELOG.md) — 历次值得留痕的改动
+
 <a id="english-guide"></a>
 
 ## English Guide
@@ -309,3 +318,8 @@ Then replace the sample path in `cron.example` with your actual deployment direc
 ## License
 
 This project is released under the MIT License. See `LICENSE` for details.
+
+## 进一步阅读
+
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — 提交规范与仓库卫生红线
+- [CHANGELOG.md](./CHANGELOG.md) — 历次值得留痕的改动

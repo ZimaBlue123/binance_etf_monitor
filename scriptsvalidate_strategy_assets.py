@@ -17,10 +17,12 @@
 10) 输出校验报告，异常时非0退出码
 """
 
+from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any
 
 import yaml
 
@@ -49,7 +51,7 @@ def configure_console_encoding():
 configure_console_encoding()
 
 
-def load_config(path: Path) -> dict:
+def load_config(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError(f"配置文件不存在: {path}")
     if path.suffix.lower() in [".yaml", ".yml"]:
@@ -59,7 +61,7 @@ def load_config(path: Path) -> dict:
     raise ValueError("配置文件仅支持 .yaml/.yml/.json")
 
 
-def classify_fund(name: str, category_rules: Dict[str, dict]) -> str:
+def classify_fund(name: str, category_rules: dict[str, dict[str, Any]]) -> str:
     lower_name = name.lower()
     for cat in ["QDII", "债基", "行业"]:
         kws = category_rules.get(cat, {}).get("include_keywords", [])
@@ -68,9 +70,12 @@ def classify_fund(name: str, category_rules: Dict[str, dict]) -> str:
     return "宽基"
 
 
-def validate_thresholds(thresholds: Dict[str, dict]) -> List[str]:
-    errors = []
+def validate_thresholds(thresholds: dict[str, dict[str, Any]]) -> list[str]:
+    errors: list[str] = []
     for cat, conf in thresholds.items():
+        if not isinstance(conf, dict):
+            errors.append(f"[thresholds] 类别 `{cat}` 不是对象")
+            continue
         for k in REQUIRED_THRESH_KEYS:
             if k not in conf:
                 errors.append(f"[thresholds] 类别 `{cat}` 缺少字段 `{k}`")
@@ -80,13 +85,12 @@ def validate_thresholds(thresholds: Dict[str, dict]) -> List[str]:
     return errors
 
 
-def validate_etf_products(etf_list: list) -> Tuple[List[str], Dict[str, int]]:
-    errors = []
-    seen = {}
-    class_stats = {"QDII": 0, "债基": 0, "行业": 0, "宽基": 0}  # 仅占位，实际在外部统计
+def validate_etf_products(etf_list: list) -> list[str]:
+    errors: list[str] = []
+    seen: dict[str, int] = {}
 
     if not isinstance(etf_list, list):
-        return ["etf_products.json 顶层必须是数组(list)"], class_stats
+        return ["etf_products.json 顶层必须是数组(list)"]
 
     for i, item in enumerate(etf_list):
         if not isinstance(item, dict):
@@ -111,10 +115,10 @@ def validate_etf_products(etf_list: list) -> Tuple[List[str], Dict[str, int]]:
     if duplicates:
         errors.append(f"[etf] 发现重复基金代码 {len(duplicates)} 个，例如: {duplicates[:10]}")
 
-    return errors, class_stats
+    return errors
 
 
-def validate_crypto_products(crypto_list: list) -> List[str]:
+def validate_crypto_products(crypto_list: list) -> list[str]:
     errors = []
     seen = {}
 
@@ -155,8 +159,8 @@ def resolve_from_project(config_path: Path, raw_path: str) -> Path:
     return (project_dir / p).resolve()
 
 
-def collect_runtime_artifacts(project_dir: Path) -> List[Path]:
-    matches: List[Path] = []
+def collect_runtime_artifacts(project_dir: Path) -> list[Path]:
+    matches: list[Path] = []
     for pattern in RUNTIME_ARTIFACT_PATTERNS:
         matches.extend(project_dir.glob(pattern))
     return sorted({path.resolve() for path in matches})
@@ -166,8 +170,8 @@ def main():
     config_path = Path(sys.argv[1]).expanduser().resolve() if len(sys.argv) > 1 else DEFAULT_CONFIG_PATH
     project_dir = config_path.parent.parent if config_path.parent.name == "config" else config_path.parent
 
-    errors: List[str] = []
-    warnings: List[str] = []
+    errors: list[str] = []
+    warnings: list[str] = []
 
     # 1) 读配置
     try:
@@ -223,7 +227,7 @@ def main():
             errors.append(f"[etf] JSON 解析失败: {e}")
             etf_list = []
 
-    etf_errors, _ = validate_etf_products(etf_list)
+    etf_errors = validate_etf_products(etf_list)
     errors.extend(etf_errors)
 
     # 5) 读取 Crypto 清单
