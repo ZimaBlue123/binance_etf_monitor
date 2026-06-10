@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
+
 import os
 import sys
 import re
@@ -10,7 +12,7 @@ import time
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Tuple, List
+from typing import Any, Optional
 
 import pandas as pd
 import requests
@@ -34,7 +36,7 @@ def configure_console_encoding():
 configure_console_encoding()
 
 
-def load_config(path: str) -> dict:
+def load_config(path: str) -> dict[str, Any]:
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"配置文件不存在: {path}")
@@ -47,9 +49,16 @@ def load_config(path: str) -> dict:
     raise ValueError("仅支持 .yaml/.yml/.json 配置文件")
 
 
-def load_json(path: str):
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+def load_json(path: str) -> Any:
+    """读取 JSON 资产清单文件,显式抛错便于上层定位。"""
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"资产清单不存在: {path}")
+    try:
+        with p.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"资产清单 JSON 解析失败: {path} | {e}") from e
 
 
 def safe_float(x, default=0.0):
@@ -74,6 +83,7 @@ class QuantReporter:
     def __init__(self, config_path: str):
         self.config_path = Path(config_path).expanduser().resolve()
         self.project_dir = self.config_path.parent.parent if self.config_path.parent.name == "config" else self.config_path.parent
+        self._pending_debug_logs: list[str] = []
         self.cfg = load_config(str(self.config_path))
 
         self.work_dir = self._resolve_path(self.cfg["work_dir"])
@@ -88,8 +98,12 @@ class QuantReporter:
         os.environ["TZ"] = self.cfg.get("timezone", "Asia/Shanghai")
         try:
             time.tzset()
-        except Exception:
-            pass
+        except (AttributeError, OSError):
+            # Windows / 嵌入式环境不支持 tzset,仅记录后继续
+            # 注意:此时 logger 尚未创建,先暂存到待补打的列表
+            self._pending_debug_logs.append(
+                f"time.tzset() 不可用,使用环境默认时区 TZ={os.environ.get('TZ', '<unset>')}"
+            )
 
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
         logging.basicConfig(
@@ -101,10 +115,23 @@ class QuantReporter:
             ],
         )
         self.logger = logging.getLogger(__name__)
+        # 刷新 logger 初始化前积累的调试信息
+        for msg in self._pending_debug_logs:
+            self.logger.debug(msg)
+        self._pending_debug_logs.clear()
 
         self.session = self._build_session()
-        self.crypto_products = load_json(str(self.crypto_file))
-        self.etf_products = load_json(str(self.etf_file))
+        # 资产清单在 logger 初始化之前加载,失败时 logger 尚未就绪,用 print 兜底
+        try:
+            self.crypto_products = load_json(str(self.crypto_file))
+        except (FileNotFoundError, ValueError) as e:
+            print(f"[!] 加密资产清单加载失败: {e}", file=sys.stderr)
+            raise
+        try:
+            self.etf_products = load_json(str(self.etf_file))
+        except (FileNotFoundError, ValueError) as e:
+            print(f"[!] ETF 资产清单加载失败: {e}", file=sys.stderr)
+            raise
         self.max_neutral_funds_in_report = int(
             self.cfg.get("fund", {}).get("report", {}).get("max_neutral_items", 20)
         )
@@ -143,22 +170,33 @@ class QuantReporter:
             self.logger.error(f"[-] 请求失败: {url} | {e}")
             return None
 
-    def load_history(self) -> Dict:
+    def load_history(self) -> dict[str, Any]:
         if not self.history_file.exists():
             return {}
         try:
             with open(self.history_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except (OSError, json.JSONDecodeError) as e:
             self.logger.warning(f"[!] 历史文件读取异常，使用空历史: {e}")
             return {}
 
-    def atomic_write(self, data: Dict):
+    def atomic_write(self, data: dict[str, Any]):
+        """原子写入历史文件:先写 .tmp 再 replace;Windows 上 replace 偶发占用冲突时回退为直接覆盖。"""
         self.history_file.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.history_file.with_suffix(".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        tmp.replace(self.history_file)
+        try:
+            tmp.replace(self.history_file)
+        except OSError as e:
+            self.logger.warning(f"[!] atomic replace 失败,回退为直接覆盖: {e}")
+            with open(self.history_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
     def write_report_files(self, today: str, report_content: str):
         report_dir = self.work_dir / "reports"
@@ -171,13 +209,23 @@ class QuantReporter:
             f.write(markdown_to_text(report_content) + "\n")
         return md_file, txt_file
 
-    def history_series(self, hist: Dict, key: str) -> pd.Series:
+    def history_series(self, hist: dict[str, Any], key: str) -> pd.Series:
         d = hist.get(key, {})
-        if not d:
+        if not isinstance(d, dict) or not d:
             return pd.Series(dtype=float)
-        items = sorted(d.items(), key=lambda x: x[0])
-        vals = [safe_float(v, math.nan) for _, v in items]
-        return pd.Series(vals).dropna()
+        # 只接受 (str, 数值) 二元组,脏数据剔除后再排序
+        clean: list[tuple[str, float]] = []
+        for k, v in d.items():
+            if not isinstance(k, str):
+                continue
+            fv = safe_float(v, math.nan)
+            if math.isnan(fv):
+                continue
+            clean.append((k, fv))
+        if not clean:
+            return pd.Series(dtype=float)
+        clean.sort(key=lambda x: x[0])
+        return pd.Series([v for _, v in clean], dtype=float)
 
     # -------- crypto --------
     def _fetch_crypto_daily_ohlcv_binance(self, symbol: str) -> Optional[pd.DataFrame]:
@@ -227,8 +275,8 @@ class QuantReporter:
             self.logger.error(f"[-] 解析 KuCoin 日K失败 {symbol}: {e}")
             return None
 
-    def fetch_crypto_daily_ohlcv(self, symbol: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
-        providers: List[str] = self.cfg["crypto"].get("providers", ["binance", "kucoin"])
+    def fetch_crypto_daily_ohlcv(self, symbol: str) -> tuple[Optional[pd.DataFrame], Optional[str]]:
+        providers: list[str] = self.cfg["crypto"].get("providers", ["binance", "kucoin"])
         for provider in providers:
             provider_key = str(provider).strip().lower()
             if provider_key == "binance":
@@ -245,9 +293,31 @@ class QuantReporter:
 
         return None, None
 
-    def daily_decision_engine(self, df: pd.DataFrame) -> Tuple[str, float, Dict]:
+    def daily_decision_engine(self, df: pd.DataFrame) -> tuple[str, float, dict[str, Any]]:
         ccfg = self.cfg["crypto"]
         th = ccfg["score_thresholds"]
+
+        # 数据不足时返回安全中性占位,让上层把它当作普通信号继续输出
+        min_required = max(int(ccfg.get("ma_slow", 60)) + 2, 22)
+        if df is None or df.empty or len(df) < min_required:
+            self.logger.warning(
+                f"[!] daily_decision_engine: 数据行数 {0 if df is None else len(df)} < {min_required},返回中性占位"
+            )
+            return (
+                "⚪ 数据不足",
+                0.0,
+                {
+                    "price": math.nan,
+                    "daily_change": 0.0,
+                    "rsi": math.nan,
+                    "zscore": math.nan,
+                    "score": 0.0,
+                    "vol_ratio": 1.0,
+                    "trend_up": False,
+                    "position": "0%-0%",
+                    "data_rows": 0 if df is None else int(len(df)),
+                },
+            )
 
         close, high, low, vol = df["close"], df["high"], df["low"], df["volume"]
         c, c_prev = close.iloc[-1], close.iloc[-2]
@@ -306,19 +376,26 @@ class QuantReporter:
 
         return advice, score, {
             "price": c, "daily_change": daily_change, "rsi": rsi, "zscore": z,
-            "score": score, "vol_ratio": vol_ratio, "trend_up": trend_up, "position": pos
+            "score": score, "vol_ratio": vol_ratio, "trend_up": trend_up, "position": pos,
+            "data_rows": int(len(df)),
         }
 
-    def analyze_crypto(self, name: str, symbol: str) -> Tuple[Optional[str], Optional[float], Optional[str]]:
+    def analyze_crypto(self, name: str, symbol: str) -> tuple[Optional[str], Optional[float], Optional[str]]:
         df, provider = self.fetch_crypto_daily_ohlcv(symbol)
         if df is None or df.empty:
             return None, None, None
-        advice, _, d = self.daily_decision_engine(df)
+        try:
+            advice, _, d = self.daily_decision_engine(df)
+        except (IndexError, ValueError, KeyError) as e:
+            # 引擎内已尽量防御,这里是最后一道兜底
+            self.logger.error(f"[-] 决策引擎异常 {name}({symbol}): {e}")
+            return None, None, None
         provider_text = (provider or "unknown").upper()
         msg = (
             f"- **{name} ({symbol})**: {d['price']:.2f} | 日变动 **{d['daily_change']:+.2f}%** | {advice}\n"
             f"  - 信号: score={d['score']:+.2f}, RSI={d['rsi']:.1f}, z={d['zscore']:+.2f}, "
-            f"量比={d['vol_ratio']:.2f}, 趋势={'上行' if d['trend_up'] else '下行/震荡'}, 数据源={provider_text}\n"
+            f"量比={d['vol_ratio']:.2f}, 趋势={'上行' if d['trend_up'] else '下行/震荡'}, 数据源={provider_text}, "
+            f"K线行数={d.get('data_rows', 'N/A')}\n"
             f"  - 风控: 建议仓位 {d['position']}（日级观察，最小观察周期>=2天）"
         )
         return msg, d["price"], provider
@@ -332,7 +409,7 @@ class QuantReporter:
                 return cat
         return "宽基"
 
-    def _fetch_fund_estimate_fundgz(self, code: str) -> Tuple[Optional[float], Optional[float]]:
+    def _fetch_fund_estimate_fundgz(self, code: str) -> tuple[Optional[float], Optional[float]]:
         url = f"https://fundgz.1234567.com.cn/js/{code}.js"
         res = self.safe_fetch(url)
         if not res:
@@ -351,7 +428,7 @@ class QuantReporter:
             self.logger.error(f"[-] 解析 FundGZ 基金数据失败 {code}: {e}")
             return None, None
 
-    def _fetch_fund_estimate_eastmoney_f10(self, code: str) -> Tuple[Optional[float], Optional[float]]:
+    def _fetch_fund_estimate_eastmoney_f10(self, code: str) -> tuple[Optional[float], Optional[float]]:
         url = f"https://fund.eastmoney.com/f10/F10DataApi.aspx?type=lsjz&code={code}&page=1&per=1"
         res = self.safe_fetch(url)
         if not res:
@@ -375,8 +452,8 @@ class QuantReporter:
             self.logger.error(f"[-] 解析 Eastmoney F10 基金数据失败 {code}: {e}")
             return None, None
 
-    def fetch_fund_estimate(self, code: str) -> Tuple[Optional[float], Optional[float], Optional[str]]:
-        providers: List[str] = self.cfg["fund"].get("providers", ["fundgz", "eastmoney_f10"])
+    def fetch_fund_estimate(self, code: str) -> tuple[Optional[float], Optional[float], Optional[str]]:
+        providers: list[str] = self.cfg["fund"].get("providers", ["fundgz", "eastmoney_f10"])
         for provider in providers:
             provider_key = str(provider).strip().lower()
             if provider_key == "fundgz":
@@ -393,7 +470,7 @@ class QuantReporter:
 
         return None, None, None
 
-    def fund_metrics(self, hist: Dict, key: str, current_price: float) -> Dict:
+    def fund_metrics(self, hist: dict[str, Any], key: str, current_price: float) -> dict[str, Any]:
         s = self.history_series(hist, key)
         s2 = pd.concat([s, pd.Series([current_price])], ignore_index=True) if len(s) > 0 else pd.Series([current_price])
         out = {"ma5": None, "ma20": None}
@@ -403,7 +480,7 @@ class QuantReporter:
             out["ma20"] = s2.iloc[-20:].mean()
         return out
 
-    def fund_advice(self, category: str, daily_change: float, ma5, ma20, price) -> Tuple[str, str]:
+    def fund_advice(self, category: str, daily_change: float, ma5, ma20, price) -> tuple[str, str]:
         th = self.cfg["fund"]["thresholds"][category]
         trend = "中性"
         if ma5 is not None and ma20 is not None:
@@ -432,7 +509,7 @@ class QuantReporter:
             return "cold"
         return "neutral"
 
-    def analyze_fund(self, name: str, code: str, hist: Dict) -> Tuple[Optional[str], Optional[float], Optional[str], Optional[str]]:
+    def analyze_fund(self, name: str, code: str, hist: dict[str, Any]) -> tuple[Optional[str], Optional[float], Optional[str], Optional[str]]:
         price, daily_change, provider = self.fetch_fund_estimate(code)
         if price is None:
             return None, None, None, None
@@ -452,13 +529,19 @@ class QuantReporter:
 
     def run(self):
         self.logger.info("=== 🚀 日报监控启动（配置驱动）===")
+        self.logger.info(
+            f"配置文件: {self.config_path} | 项目根: {self.project_dir} | 工作目录: {self.work_dir}"
+        )
         hist = self.load_history()
         today = datetime.now().strftime("%Y-%m-%d")
 
         report = [f"📊 **策略日报 ({today})**\n"]
         valid_count = 0
-        crypto_primary = str(self.cfg["crypto"].get("providers", ["binance"])[0]).strip().lower()
-        fund_primary = str(self.cfg["fund"].get("providers", ["fundgz"])[0]).strip().lower()
+        # 主源取自 providers 列表首项;若列表为空则视为 None,后续比较恒为"备援"
+        crypto_providers = self.cfg["crypto"].get("providers") or ["binance"]
+        fund_providers = self.cfg["fund"].get("providers") or ["fundgz"]
+        crypto_primary = str(crypto_providers[0]).strip().lower() if crypto_providers else None
+        fund_primary = str(fund_providers[0]).strip().lower() if fund_providers else None
         crypto_fallback_used = []
         fund_fallback_used = []
         fund_sections = {
@@ -508,6 +591,11 @@ class QuantReporter:
 
         if valid_count == 0:
             self.logger.error("❌ 未获取到有效行情，退出。")
+            # 退出前把已累积的 hist 兜底落盘,避免下次启动从破损历史恢复
+            try:
+                self.atomic_write(hist)
+            except OSError as e:
+                self.logger.error(f"[-] 退出前落盘失败: {e}")
             sys.exit(1)
 
         self.atomic_write(hist)
