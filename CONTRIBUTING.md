@@ -14,8 +14,8 @@
 
 ```bash
 python -m py_compile binance_etf_configurable.py
-python -m py_compile scriptsvalidate_strategy_assets.py
-python scriptsvalidate_strategy_assets.py
+python -m py_compile scripts/validate_strategy_assets.py
+python scripts/validate_strategy_assets.py
 ```
 
 预期:编译无输出、validator 报告"校验结果:通过"。
@@ -53,7 +53,7 @@ python scriptsvalidate_strategy_assets.py
 
 ```bash
 # 1. 自检
-python scriptsvalidate_strategy_assets.py
+python scripts/validate_strategy_assets.py
 
 # 2. 检查暂存区
 git status

@@ -27,7 +27,7 @@ from typing import Any
 import yaml
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = BASE_DIR / "config" / "strategy_config.yaml"
 REQUIRED_TOP_LEVEL = ["timezone", "work_dir", "paths", "network", "crypto", "fund"]
 REQUIRED_PATHS = ["log_file", "history_file", "etf_products_file", "crypto_products_file"]

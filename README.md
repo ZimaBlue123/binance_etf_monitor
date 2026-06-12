@@ -24,7 +24,7 @@ This project is a daily monitoring script for personal research. It tracks both 
 ### 目录结构
 
 - `binance_etf_configurable.py`：主程序入口
-- `scriptsvalidate_strategy_assets.py`：项目自检脚本
+- `scripts/validate_strategy_assets.py`：项目自检脚本
 - `config/strategy_config.yaml`：主配置文件
 - `config/crypto_products.json`：加密资产列表
 - `config/etf_products.json`：基金列表
@@ -48,7 +48,7 @@ pip install -r requirements.txt
 1. 先执行自检：
 
 ```bash
-python scriptsvalidate_strategy_assets.py
+python scripts/validate_strategy_assets.py
 ```
 
 或双击：
@@ -115,7 +115,7 @@ chmod +x run_monitor.sh
 5. 上传前先运行一次：
 
 ```bash
-python scriptsvalidate_strategy_assets.py
+python scripts/validate_strategy_assets.py
 ```
 
 如果你初始化了 Git，还可以再本地检查一次：
@@ -150,7 +150,7 @@ crontab -e
 
 ### 自检范围
 
-`scriptsvalidate_strategy_assets.py` 会检查：
+`scripts/validate_strategy_assets.py` 会检查：
 
 - 配置文件结构是否完整
 - 基金列表是否格式正确、代码是否重复
@@ -185,7 +185,7 @@ It is suitable for local execution, scheduled runs on a server, or Windows Task 
 ### Main Files
 
 - `binance_etf_configurable.py`: main entry point
-- `scriptsvalidate_strategy_assets.py`: self-check and repository hygiene validator
+- `scripts/validate_strategy_assets.py`: self-check and repository hygiene validator
 - `config/strategy_config.yaml`: main runtime configuration
 - `config/crypto_products.json`: crypto watchlist
 - `config/etf_products.json`: fund watchlist
@@ -209,7 +209,7 @@ pip install -r requirements.txt
 Run validation first:
 
 ```bash
-python scriptsvalidate_strategy_assets.py
+python scripts/validate_strategy_assets.py
 ```
 
 Or double-click:
@@ -276,7 +276,7 @@ Before pushing this project to GitHub, make sure that:
 - you run the validator before upload:
 
 ```bash
-python scriptsvalidate_strategy_assets.py
+python scripts/validate_strategy_assets.py
 ```
 
 If Git has been initialized locally, also inspect staged files carefully:
@@ -307,7 +307,7 @@ Then replace the sample path in `cron.example` with your actual deployment direc
 
 ### Validation Coverage
 
-`scriptsvalidate_strategy_assets.py` checks:
+`scripts/validate_strategy_assets.py` checks:
 
 - whether the config file structure is complete
 - whether the fund list format is valid and whether codes are duplicated

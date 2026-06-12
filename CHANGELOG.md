@@ -41,6 +41,22 @@
 - **更新**:`requirements.txt` 钉死下界、放开上界,显式声明 `urllib3`。
 - **更新**:本 changelog 文件。
 
+#### `binance_etf_configurable.py` — 鲁棒性与类型
+
+- **加固**:`safe_float` 补齐 Type Hints(`x: Any, default: float = 0.0) -> float`),
+  `except Exception` 窄化为 `(TypeError, ValueError)`,匹配 `float()` 真实失败路径。
+- **加固**:`daily_decision_engine` 在指标计算前对核心 OHLCV 尾部做 NaN 兜底,
+  任一为 NaN 时返回与"数据不足"一致的中性占位,避免 NaN 蔓延到 score 输出。
+
+#### 仓库结构 — 脚本规范化
+
+- **重构**:自检脚本 `scriptsvalidate_strategy_assets.py` 重命名到
+  `scripts/validate_strategy_assets.py`,与 `validate_assets.bat` 调用约定一致;
+  `BASE_DIR` 同步上移一层指回 project root,保留 git rename history(`git mv` 等价)。
+- **更新**:`README.md` / `CONTRIBUTING.md` 中所有引用同步到新路径。
+- **更新**:`.gitignore` 补齐 Android/Gradle 类别(`.gradle/`、`.kotlin/`、
+  `local.properties`、`captures/`、`*.hprof`、`.cxx/`、`android/app/{release,debug}/`)。
+
 ## [0.1.0] — 2026-06-09
 
 ### Added

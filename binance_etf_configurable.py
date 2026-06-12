@@ -61,10 +61,10 @@ def load_json(path: str) -> Any:
         raise ValueError(f"资产清单 JSON 解析失败: {path} | {e}") from e
 
 
-def safe_float(x, default=0.0):
+def safe_float(x: Any, default: float = 0.0) -> float:
     try:
         return float(x)
-    except Exception:
+    except (TypeError, ValueError):
         return default
 
 
@@ -320,6 +320,29 @@ class QuantReporter:
             )
 
         close, high, low, vol = df["close"], df["high"], df["low"], df["volume"]
+        # 关键字段 NaN 兜底:即便行数够了,极端行情/数据源缺字段也可能在尾部留 NaN
+        # 任一为 NaN 时返回中性占位,与 L302 行为保持一致(避免把"无信号"伪装成"弱信号")
+        core_tail = pd.concat([close.iloc[-2:], high.iloc[-1:], low.iloc[-1:], vol.iloc[-1:]])
+        if core_tail.isna().any():
+            self.logger.warning(
+                f"[!] daily_decision_engine: 核心 OHLCV 字段存在 NaN,返回中性占位 "
+                f"(close[-2:]/high[-1]/low[-1]/vol[-1] 共 {core_tail.isna().sum()} 个 NaN)"
+            )
+            return (
+                "⚪ 数据不足",
+                0.0,
+                {
+                    "price": math.nan,
+                    "daily_change": 0.0,
+                    "rsi": math.nan,
+                    "zscore": math.nan,
+                    "score": 0.0,
+                    "vol_ratio": 1.0,
+                    "trend_up": False,
+                    "position": "0%-0%",
+                    "data_rows": int(len(df)),
+                },
+            )
         c, c_prev = close.iloc[-1], close.iloc[-2]
         daily_change = ((c - c_prev) / c_prev * 100) if c_prev > 0 else 0.0
 
