@@ -36,6 +36,14 @@ captures/
 .cxx/
 android/app/release/
 android/app/debug/
+android/app/build/
+
+# APK build artifacts
+*.apk
+*.aab
+
+# Worktrees (local-only Android build environment)
+.worktrees/
 
 # IDE
 .idea/

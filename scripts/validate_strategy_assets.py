@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 """
-一键校验策略配置、资产清单与仓库卫生
+一键校验策略配置、资产清单与仓库卫生。
 
 校验项：
 1) 配置文件可读取（yaml/json）
@@ -52,12 +51,19 @@ configure_console_encoding()
 
 
 def load_config(path: Path) -> dict[str, Any]:
+    """读取并返回配置字典，支持 YAML 和 JSON 格式。"""
     if not path.exists():
         raise FileNotFoundError(f"配置文件不存在: {path}")
     if path.suffix.lower() in [".yaml", ".yml"]:
-        return yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError(f"配置文件内容无效（期望 dict）: {path}")
+        return data
     if path.suffix.lower() == ".json":
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError(f"配置文件内容无效（期望 dict）: {path}")
+        return data
     raise ValueError("配置文件仅支持 .yaml/.yml/.json")
 
 
@@ -85,7 +91,8 @@ def validate_thresholds(thresholds: dict[str, dict[str, Any]]) -> list[str]:
     return errors
 
 
-def validate_etf_products(etf_list: list) -> list[str]:
+def validate_etf_products(etf_list: list[Any]) -> list[str]:
+    """校验 ETF 清单格式：结构、字段完整性、代码唯一性。"""
     errors: list[str] = []
     seen: dict[str, int] = {}
 
@@ -118,9 +125,10 @@ def validate_etf_products(etf_list: list) -> list[str]:
     return errors
 
 
-def validate_crypto_products(crypto_list: list) -> list[str]:
-    errors = []
-    seen = {}
+def validate_crypto_products(crypto_list: list[Any]) -> list[str]:
+    """校验加密资产清单格式：结构、字段完整性、symbol 唯一性。"""
+    errors: list[str] = []
+    seen: dict[str, int] = {}
 
     if not isinstance(crypto_list, list):
         return ["crypto_products.json 顶层必须是数组(list)"]

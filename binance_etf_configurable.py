@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+Binance ETF Monitor — 日度策略监控主程序
+
+配置驱动，拉取加密资产与基金行情数据，生成日度策略观察报告。
+"""
 
 from __future__ import annotations
 
@@ -20,6 +25,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import yaml
 
+__all__ = ["QuantReporter", "main"]
 
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = BASE_DIR / "config" / "strategy_config.yaml"
@@ -37,15 +43,22 @@ configure_console_encoding()
 
 
 def load_config(path: str) -> dict[str, Any]:
+    """读取配置文件并返回字典，支持 YAML / JSON 格式。"""
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"配置文件不存在: {path}")
     if p.suffix.lower() in [".yaml", ".yml"]:
         with open(p, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict):
+            raise ValueError(f"配置文件内容无效（期望 dict，实际 {type(data).__name__}）: {path}")
+        return data
     if p.suffix.lower() == ".json":
         with open(p, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError(f"配置文件内容无效（期望 dict，实际 {type(data).__name__}）: {path}")
+        return data
     raise ValueError("仅支持 .yaml/.yml/.json 配置文件")
 
 
@@ -73,9 +86,10 @@ def clamp(x: float, low: float, high: float) -> float:
 
 
 def markdown_to_text(content: str) -> str:
-    text = content.replace("**", "")
-    text = text.replace("📊 ", "").replace("🟢 ", "").replace("🟡 ", "")
-    text = text.replace("🔴 ", "").replace("🟠 ", "").replace("⚪ ", "")
+    """将 Markdown 报告转为纯文本：去除加粗标记与 emoji 前缀。"""
+    text = content.replace("**", "").replace("***", "")
+    for emoji in ("📊 ", "🟢 ", "🟡 ", "🔴 ", "🟠 ", "⚪ ", "🔥 ", "🧊 ", "🚀 ", "📝 ", "✅ "):
+        text = text.replace(emoji, "")
     return text
 
 
@@ -254,7 +268,8 @@ class QuantReporter:
     def _fetch_crypto_daily_ohlcv_kucoin(self, symbol: str) -> Optional[pd.DataFrame]:
         ccfg = self.cfg["crypto"]
         url = "https://api.kucoin.com/api/v1/market/candles"
-        params = {"type": "1day", "symbol": f"{symbol}-USDT"}
+        # KuCoin 默认只返回最近部分数据，需显式传递时间范围或依赖其默认 limit
+        params = {"type": "1day", "symbol": f"{symbol}-USDT", "pageSize": str(ccfg["kline_limit"])}
         res = self.safe_fetch(url, params=params)
         if not res:
             return None
@@ -494,8 +509,9 @@ class QuantReporter:
         return None, None, None
 
     def fund_metrics(self, hist: dict[str, Any], key: str, current_price: float) -> dict[str, Any]:
+        """计算基金的 MA5 / MA20 指标，用于趋势判断。"""
         s = self.history_series(hist, key)
-        s2 = pd.concat([s, pd.Series([current_price])], ignore_index=True) if len(s) > 0 else pd.Series([current_price])
+        s2 = pd.concat([s, pd.Series([current_price], dtype=float)], ignore_index=True) if len(s) > 0 else pd.Series([current_price], dtype=float)
         out = {"ma5": None, "ma20": None}
         if len(s2) >= 5:
             out["ma5"] = s2.iloc[-5:].mean()

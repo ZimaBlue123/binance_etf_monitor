@@ -5,6 +5,30 @@
 
 ## [Unreleased]
 
+### Changed — ETF 清单更新 & 代码健壮性补强(2026-06-18)
+
+#### `config/etf_products.json`
+
+- **更新**:ETF 基金观察清单更新至 150 只，同步重新构建 Android APK (v1.2.1)。
+
+#### `binance_etf_configurable.py`
+
+- **加固**:`load_config` 增加 YAML 空文件/非 dict 返回值防御。
+- **加固**:`markdown_to_text` 补全报告中新增 emoji（🔥/🧊/🚀/📝/✅）的清理。
+- **优化**:KuCoin 数据源显式传递 `pageSize` 参数，确保拉取足够 K 线数据。
+- **优化**:`fund_metrics` 中 `pd.concat` 显式指定 `dtype=float`，消除 FutureWarning。
+- **规范**:添加模块 docstring 与 `__all__` 声明。
+
+#### `scripts/validate_strategy_assets.py`
+
+- **加固**:`load_config` 增加空文件防御（与主程序同步）。
+- **规范**:补全函数 docstring，参数泛型类型注解完善（`list` → `list[Any]`）。
+
+#### 仓库卫生
+
+- **更新**:`.gitignore` 新增 `*.apk`、`*.aab`、`.worktrees/`、`android/app/build/` 拦截规则。
+- **清理**:移除冗余 worktree 副本与旧版 archive-v1.0。
+
 ### Changed — 代码健壮性 & 工程质量(2026-06-10)
 
 #### `binance_etf_configurable.py`
