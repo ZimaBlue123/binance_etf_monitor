@@ -16,7 +16,7 @@ network:
   user_agent: "Mozilla/5.0 (Binance ETF Monitor)"
 
 crypto:
-  providers: ["kucoin", "binance"]
+  providers: ["kucoin", "binance_us"]
   interval: "1d"
   kline_limit: 260
   rsi_period: 14
@@ -32,7 +32,7 @@ crypto:
     strong_sell: -0.60
 
 fund:
-  providers: ["fundgz", "eastmoney_f10"]
+  providers: ["eastmoney_api"]
   report:
     max_neutral_items: 20
   category_rules:

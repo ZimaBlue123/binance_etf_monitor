@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import sys
-import re
 import json
 import math
 import time
@@ -22,6 +21,7 @@ from typing import Any, Optional
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
+from requests.exceptions import RequestException
 from urllib3.util.retry import Retry
 import yaml
 
@@ -173,15 +173,21 @@ class QuantReporter:
         s.headers.update({"User-Agent": ncfg["user_agent"]})
         return s
 
-    def safe_fetch(self, url: str, params: Optional[dict] = None) -> Optional[requests.Response]:
+    def safe_fetch(self, url: str, params: Optional[dict] = None, headers: Optional[dict] = None) -> Optional[requests.Response]:
         ncfg = self.cfg["network"]
         timeout = (ncfg["timeout_connect"], ncfg["timeout_read"])
+        merged_headers = {}
+        if headers:
+            merged_headers.update(headers)
         try:
-            r = self.session.get(url, params=params, timeout=timeout)
+            r = self.session.get(url, params=params, headers=merged_headers or None, timeout=timeout)
             r.raise_for_status()
             return r
-        except Exception as e:
+        except (RequestException, OSError) as e:
             self.logger.error(f"[-] 请求失败: {url} | {e}")
+            return None
+        except ValueError as e:
+            self.logger.error(f"[-] 请求参数无效: {url} | {e}")
             return None
 
     def load_history(self) -> dict[str, Any]:
@@ -224,6 +230,10 @@ class QuantReporter:
         return md_file, txt_file
 
     def history_series(self, hist: dict[str, Any], key: str) -> pd.Series:
+        """从历史字典中提取指定 key 的时序数据，清洗后返回按日期排序的 float Series。
+
+        自动剔除脏数据（非字符串 key 或非数值 value），无有效数据时返回空 Series(dtype=float)。
+        """
         d = hist.get(key, {})
         if not isinstance(d, dict) or not d:
             return pd.Series(dtype=float)
@@ -265,6 +275,30 @@ class QuantReporter:
             self.logger.error(f"[-] 解析 Binance 日K失败 {symbol}: {e}")
             return None
 
+    def _fetch_crypto_daily_ohlcv_binance_us(self, symbol: str) -> Optional[pd.DataFrame]:
+        """通过 Binance.US 获取日线 OHLCV（Binance 主站在部分地区被封）。"""
+        ccfg = self.cfg["crypto"]
+        url = "https://api.binance.us/api/v3/klines"
+        params = {"symbol": f"{symbol}USDT", "interval": ccfg["interval"], "limit": ccfg["kline_limit"]}
+        res = self.safe_fetch(url, params=params)
+        if not res:
+            return None
+        try:
+            data = res.json()
+            if not isinstance(data, list) or len(data) < max(ccfg["ma_slow"] + 5, 80):
+                return None
+            rows = [{
+                "open": safe_float(x[1]),
+                "high": safe_float(x[2]),
+                "low": safe_float(x[3]),
+                "close": safe_float(x[4]),
+                "volume": safe_float(x[5]),
+            } for x in data]
+            return pd.DataFrame(rows)
+        except Exception as e:
+            self.logger.error(f"[-] 解析 Binance.US 日K失败 {symbol}: {e}")
+            return None
+
     def _fetch_crypto_daily_ohlcv_kucoin(self, symbol: str) -> Optional[pd.DataFrame]:
         ccfg = self.cfg["crypto"]
         url = "https://api.kucoin.com/api/v1/market/candles"
@@ -291,11 +325,13 @@ class QuantReporter:
             return None
 
     def fetch_crypto_daily_ohlcv(self, symbol: str) -> tuple[Optional[pd.DataFrame], Optional[str]]:
-        providers: list[str] = self.cfg["crypto"].get("providers", ["binance", "kucoin"])
+        providers: list[str] = self.cfg["crypto"].get("providers", ["kucoin", "binance_us"])
         for provider in providers:
             provider_key = str(provider).strip().lower()
             if provider_key == "binance":
                 df = self._fetch_crypto_daily_ohlcv_binance(symbol)
+            elif provider_key == "binance_us":
+                df = self._fetch_crypto_daily_ohlcv_binance_us(symbol)
             elif provider_key == "kucoin":
                 df = self._fetch_crypto_daily_ohlcv_kucoin(symbol)
             else:
@@ -447,57 +483,40 @@ class QuantReporter:
                 return cat
         return "宽基"
 
-    def _fetch_fund_estimate_fundgz(self, code: str) -> tuple[Optional[float], Optional[float]]:
-        url = f"https://fundgz.1234567.com.cn/js/{code}.js"
-        res = self.safe_fetch(url)
+    def _fetch_fund_estimate_eastmoney(self, code: str) -> tuple[Optional[float], Optional[float]]:
+        """通过东方财富 API 获取基金最新净值和日涨跌幅。
+        接口: api.fund.eastmoney.com/f10/lsjz ,返回纯 JSON。
+        """
+        url = "https://api.fund.eastmoney.com/f10/lsjz"
+        params = {"fundCode": code, "pageIndex": 1, "pageSize": 1}
+        res = self.safe_fetch(url, params=params, headers={"Referer": "https://fund.eastmoney.com/"})
         if not res:
             return None, None
         try:
-            m = re.search(r"jsonpgz\s*\(\s*({.*?})\s*\)\s*;", res.text)
-            if not m:
+            data = res.json()
+            if not isinstance(data, dict):
                 return None, None
-            d = json.loads(m.group(1))
-            price = safe_float(d.get("gsz"), math.nan)
-            daily = safe_float(d.get("gszzl"), math.nan)
-            if math.isnan(price) or math.isnan(daily):
+            items = data.get("Data", {}).get("LSJZList", [])
+            if not items or not isinstance(items, list):
                 return None, None
-            return price, daily
-        except Exception as e:
-            self.logger.error(f"[-] 解析 FundGZ 基金数据失败 {code}: {e}")
-            return None, None
-
-    def _fetch_fund_estimate_eastmoney_f10(self, code: str) -> tuple[Optional[float], Optional[float]]:
-        url = f"https://fund.eastmoney.com/f10/F10DataApi.aspx?type=lsjz&code={code}&page=1&per=1"
-        res = self.safe_fetch(url)
-        if not res:
-            return None, None
-        try:
-            row_match = re.search(r"<tbody><tr>(.*?)</tr>", res.text, flags=re.S | re.I)
-            if not row_match:
-                return None, None
-            cols = re.findall(r"<td[^>]*>(.*?)</td>", row_match.group(1), flags=re.S | re.I)
-            if len(cols) < 4:
-                return None, None
-            price = safe_float(re.sub(r"<.*?>", "", cols[1]).strip(), math.nan)
-            daily_text = re.sub(r"<.*?>", "", cols[3]).replace("%", "").strip()
-            daily = safe_float(daily_text, math.nan)
+            item = items[0]
+            price = safe_float(item.get("DWJZ"), math.nan)
+            daily = safe_float(item.get("JZZZL"), math.nan)
             if math.isnan(price):
                 return None, None
             if math.isnan(daily):
                 daily = 0.0
             return price, daily
         except Exception as e:
-            self.logger.error(f"[-] 解析 Eastmoney F10 基金数据失败 {code}: {e}")
+            self.logger.error(f"[-] 解析东方财富基金 API 失败 {code}: {e}")
             return None, None
 
     def fetch_fund_estimate(self, code: str) -> tuple[Optional[float], Optional[float], Optional[str]]:
-        providers: list[str] = self.cfg["fund"].get("providers", ["fundgz", "eastmoney_f10"])
+        providers: list[str] = self.cfg["fund"].get("providers", ["eastmoney_api"])
         for provider in providers:
             provider_key = str(provider).strip().lower()
-            if provider_key == "fundgz":
-                price, daily = self._fetch_fund_estimate_fundgz(code)
-            elif provider_key == "eastmoney_f10":
-                price, daily = self._fetch_fund_estimate_eastmoney_f10(code)
+            if provider_key == "eastmoney_api":
+                price, daily = self._fetch_fund_estimate_eastmoney(code)
             else:
                 self.logger.warning(f"[!] 未识别的基金数据源，已跳过: {provider}")
                 continue
@@ -519,7 +538,7 @@ class QuantReporter:
             out["ma20"] = s2.iloc[-20:].mean()
         return out
 
-    def fund_advice(self, category: str, daily_change: float, ma5, ma20, price) -> tuple[str, str]:
+    def fund_advice(self, category: str, daily_change: float, ma5: Optional[float], ma20: Optional[float], price: float) -> tuple[str, str]:
         th = self.cfg["fund"]["thresholds"][category]
         trend = "中性"
         if ma5 is not None and ma20 is not None:
@@ -578,7 +597,7 @@ class QuantReporter:
         valid_count = 0
         # 主源取自 providers 列表首项;若列表为空则视为 None,后续比较恒为"备援"
         crypto_providers = self.cfg["crypto"].get("providers") or ["binance"]
-        fund_providers = self.cfg["fund"].get("providers") or ["fundgz"]
+        fund_providers = self.cfg["fund"].get("providers") or ["eastmoney_api"]
         crypto_primary = str(crypto_providers[0]).strip().lower() if crypto_providers else None
         fund_primary = str(fund_providers[0]).strip().lower() if fund_providers else None
         crypto_fallback_used = []

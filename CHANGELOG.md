@@ -3,7 +3,40 @@
 本文件记录所有值得留痕的改动。格式参考 [Keep a Changelog](https://keepachangelog.com/),
 版本号遵循 [Semantic Versioning](https://semver.org/)。
 
-## [Unreleased]
+## [1.2.2] — 2026-08-11
+
+### Fixed — 数据源全面修复 + APK 重构建
+
+#### 数据源迁移
+
+- **基金**: 原 fundgz（`fundgz.1234567.com.cn`）和 eastmoney F10（`fund.eastmoney.com/f10/F10DataApi.aspx`）均已下线/失效，
+  统一迁移至东方财富 API（`api.fund.eastmoney.com/f10/lsjz`），provider key 为 `eastmoney_api`。
+- **加密**: Binance 主站（`api.binance.com`）在部分地区返回 HTTP 451（地理限制），新增 `binance_us` provider
+  指向 `api.binance.us` 作为备援。配置调整为 `["kucoin", "binance_us"]`。
+
+#### `binance_etf_configurable.py`
+
+- **新增**: `_fetch_fund_estimate_eastmoney` 方法，使用东方财富 JSON API 获取净值和日涨跌幅。
+- **新增**: `_fetch_crypto_daily_ohlcv_binance_us` 方法，使用 Binance.US K 线 API。
+- **更新**: `safe_fetch` 增加可选 `headers` 参数，支持自定义请求头。
+- **更新**: `fetch_crypto_daily_ohlcv` 分发新增 `binance_us` 支持。
+- **更新**: `fetch_fund_estimate` 分发新增 `eastmoney_api` 支持，默认 provider 改为 `eastmoney_api`。
+- **标注**: 旧 fundgz / eastmoney_f10 方法保留但标注为已废弃。
+
+#### `config/strategy_config.yaml`
+
+- **更新**: `crypto.providers` 从 `["kucoin", "binance"]` 改为 `["kucoin", "binance_us"]`。
+- **更新**: `fund.providers` 从 `["fundgz", "eastmoney_f10"]` 改为 `["eastmoney_api"]`。
+
+#### 启动脚本加固
+
+- **更新**: `run_monitor.bat` / `validate_assets.bat` 增加 Python 环境检测和错误退出码。
+- **更新**: `run_monitor.sh` 增加 `python3` / `python` 自适应回退。
+
+#### Android APK
+
+- **重构建**: `BinanceETFMonitor-v1.2.2-release.apk` (versionCode 7)，同步上述全部代码和配置修复。
+  基于 Chaquopy 17 + Gradle 8.7 构建，内嵌 Python 3.10 + pandas 2.1.3 + 全部依赖。
 
 ### Changed — ETF 清单更新 & 代码健壮性补强(2026-06-18)
 
