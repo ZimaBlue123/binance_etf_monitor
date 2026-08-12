@@ -1,10 +1,11 @@
+# ===== OS =====
 .DS_Store
 Thumbs.db
 Desktop.ini
 ehthumbs.db
 $RECYCLE.BIN/
 
-# Python
+# ===== Python =====
 __pycache__/
 *.py[cod]
 *.pyo
@@ -25,8 +26,10 @@ dist/
 venv/
 env/
 ENV/
+.pyre/
+.pytype/
 
-# Android / Gradle
+# ===== Android / Gradle =====
 .gradle/
 .kotlin/
 local.properties
@@ -38,23 +41,29 @@ android/app/release/
 android/app/debug/
 android/app/build/
 
-# APK build artifacts
+# ===== APK build artifacts =====
 *.apk
 *.aab
 
-# Worktrees (local-only Android build environment)
+# ===== Android signing (sensitive) =====
+*.jks
+keystore.properties
+
+# ===== Worktrees (local-only Android build environment) =====
 .worktrees/
 
-# IDE
+# ===== AI assistant workspace (local-only) =====
+.workbuddy/
+
+# ===== IDE =====
 .idea/
 .vscode/
-*.iml
-*.ipr
-*.iws
 .fleet/
 .idea_modules/
+*.ipr
+*.iws
 
-# Environment and secrets
+# ===== Environment and secrets =====
 .env
 .env.*
 *.env
@@ -69,7 +78,7 @@ secrets.yaml
 secrets.json
 credentials.*
 
-# Runtime artifacts
+# ===== Runtime artifacts =====
 output/
 logs/
 reports/
@@ -82,18 +91,13 @@ temp/
 *.sock
 nohup.out
 
-# Local databases and caches
+# ===== Local databases and caches =====
 *.sqlite
 *.sqlite3
 *.db
 *.cache
-*.pyc
-*.pyo
-.mypy_cache/
-.pyre/
-.pytype/
 
-# OS scratch / editor backups
+# ===== OS scratch / editor backups =====
 *.swp
 *.swo
 *.swn
@@ -103,11 +107,10 @@ nohup.out
 *.orig
 *.rej
 
-# Jupyter / notebook
+# ===== Jupyter / notebook =====
 .ipynb_checkpoints/
 
-# Coverage / profiling
-.coverage
+# ===== Coverage / profiling =====
 coverage.xml
 *.gcda
 *.gcno

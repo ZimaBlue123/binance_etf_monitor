@@ -29,13 +29,15 @@ This project is a daily monitoring script for personal research. It tracks both 
 - `config/crypto_products.json`：加密资产列表
 - `config/etf_products.json`：基金列表
 - `run_monitor.bat`：Windows 一键运行主程序
+- `run_monitor.sh`：Linux / macOS 一键运行主程序
 - `validate_assets.bat`：Windows 一键执行自检
+- `requirements.txt`：Python 依赖声明
 - `output/`：运行后生成的本地数据目录，不应提交
 
 ### 环境要求
 
 - Python 3.10 或更高版本
-- 依赖包：`pandas`、`requests`、`PyYAML`
+- 依赖包：`pandas`、`requests`、`PyYAML`、`urllib3`
 
 安装示例：
 
@@ -190,13 +192,15 @@ It is suitable for local execution, scheduled runs on a server, or Windows Task 
 - `config/crypto_products.json`: crypto watchlist
 - `config/etf_products.json`: fund watchlist
 - `run_monitor.bat`: one-click launcher for Windows
+- `run_monitor.sh`: one-click launcher for Linux / macOS
 - `validate_assets.bat`: one-click validation for Windows
+- `requirements.txt`: Python dependency manifest
 - `output/`: local output directory generated after execution and should not be committed
 
 ### Requirements
 
 - Python 3.10+
-- Dependencies: `pandas`, `requests`, `PyYAML`
+- Dependencies: `pandas`, `requests`, `PyYAML`, `urllib3`
 
 Install:
 
