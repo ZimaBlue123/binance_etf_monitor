@@ -3,6 +3,31 @@
 本文件记录所有值得留痕的改动。格式参考 [Keep a Changelog](https://keepachangelog.com/),
 版本号遵循 [Semantic Versioning](https://semver.org/)。
 
+## [Unreleased]
+
+### 工程重构 — 五阶段协议执行 (2026-08-11 ~ 2026-08-12)
+
+#### 代码健壮性审计（阶段一）
+
+- **修复**: `safe_fetch` 异常类型收窄（裸 `Exception` → `RequestException`/`OSError`/`ValueError`）。
+- **修复**: `fund_advice` 补全 `Optional[float]` 类型提示。
+- **清理**: 移除 fundgz / eastmoney_f10 死代码（~60 行）与未使用的 `re` 模块。
+- **规范**: `history_series` 补充 docstring；validate 脚本添加 `__all__` 声明。
+
+#### 核心配置规范化（阶段三）
+
+- **更新**: `.gitignore` 去重 4 处 + 新增 `.workbuddy/`、`*.jks`、`keystore.properties`，按类别分区注释。
+- **更新**: `requirements.txt` pandas 上界 `<3.0` → `<4.0`（匹配实际安装 3.0.5）。
+- **更新**: `README.md` 目录结构补全 `run_monitor.sh`/`requirements.txt`，依赖列表补全 `urllib3`。
+
+#### Android 项目入仓（阶段四）
+
+- **新增**: `android/` Gradle + Chaquopy 完整工程正式纳入仓库（原位于被 gitignore 排除的 `.worktrees/`，现移至仓库根）。
+  包含 Kotlin 源码(11)、Python runner、资源文件、构建脚本与 BUILD.md。
+- **新增**: `assets/` APK 图标源文件（`regen-icons.ps1` 引用）。
+- **清理**: 2 个失效 worktree 注册（`wt/6b688fca`、`wt/b68e3efd`）。
+- **安全**: 签名密钥（`keystore/*.keystore`、`keystore.properties`）与构建缓存（`.gradle/`、`build/`）确认未入仓。
+
 ## [1.2.2] — 2026-08-11
 
 ### Fixed — 数据源全面修复 + APK 重构建
