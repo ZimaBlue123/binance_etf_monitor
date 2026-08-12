@@ -28,6 +28,26 @@
 - **清理**: 2 个失效 worktree 注册（`wt/6b688fca`、`wt/b68e3efd`）。
 - **安全**: 签名密钥（`keystore/*.keystore`、`keystore.properties`）与构建缓存（`.gradle/`、`build/`）确认未入仓。
 
+## [1.2.3] — 2026-08-12
+
+### Changed — ETF 清单扩充 & APK 重构建
+
+#### `config/etf_products.json`
+
+- **新增**: 观察清单新增 `014143 银河创新成长混合C`。
+- **修正**: 3 只基金名称修正 —— `000043 嘉实美国成长股票(QDII)`、
+  `001668 汇添富全球移动互联灵活配置混合(QDII)A`、
+  `015202 汇添富全球移动互联灵活配置混合(QDII)C`。
+- **更新**: 清单现有 156 条记录（唯一代码 151 只）。
+
+#### Android APK
+
+- **重构建**: `BinanceETFMonitor-v1.2.3-release.apk` (versionCode 8)，同步最新 ETF 产品配置。
+  基于 Chaquopy 17 + Gradle 8.7 构建，内嵌 Python 3.10 + pandas + 全部依赖（4 ABI）。
+- **修复（构建链）**: Chaquopy `pip_install.py` 在 Windows 下因 RECORD 与磁盘不一致
+  （缺失 `*.la`、入口点脚本、空目录移动）导致的构建失败，通过运行时补丁修复
+  （缺失文件跳过、`invalid path in RECORD` 改排除、`move_to_common`/`renames` 加存在性守卫）。
+
 ## [1.2.2] — 2026-08-11
 
 ### Fixed — 数据源全面修复 + APK 重构建

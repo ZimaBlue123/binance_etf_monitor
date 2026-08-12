@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import sys
-import re
 import json
 import math
 import time
@@ -22,6 +21,7 @@ from typing import Any, Optional
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
+from requests.exceptions import RequestException
 from urllib3.util.retry import Retry
 import yaml
 
@@ -183,8 +183,11 @@ class QuantReporter:
             r = self.session.get(url, params=params, headers=merged_headers or None, timeout=timeout)
             r.raise_for_status()
             return r
-        except Exception as e:
+        except (RequestException, OSError) as e:
             self.logger.error(f"[-] 请求失败: {url} | {e}")
+            return None
+        except ValueError as e:
+            self.logger.error(f"[-] 请求参数无效: {url} | {e}")
             return None
 
     def load_history(self) -> dict[str, Any]:
@@ -227,6 +230,10 @@ class QuantReporter:
         return md_file, txt_file
 
     def history_series(self, hist: dict[str, Any], key: str) -> pd.Series:
+        """从历史字典中提取指定 key 的时序数据，清洗后返回按日期排序的 float Series。
+
+        自动剔除脏数据（非字符串 key 或非数值 value），无有效数据时返回空 Series(dtype=float)。
+        """
         d = hist.get(key, {})
         if not isinstance(d, dict) or not d:
             return pd.Series(dtype=float)
@@ -476,51 +483,6 @@ class QuantReporter:
                 return cat
         return "宽基"
 
-    def _fetch_fund_estimate_fundgz(self, code: str) -> tuple[Optional[float], Optional[float]]:
-        """[已废弃] fundgz.1234567.com.cn 接口已下线(2026),保留方法供参考。"""
-        url = f"https://fundgz.1234567.com.cn/js/{code}.js"
-        res = self.safe_fetch(url)
-        if not res:
-            return None, None
-        try:
-            m = re.search(r"jsonpgz\s*\(\s*({.*?})\s*\)\s*;", res.text)
-            if not m:
-                return None, None
-            d = json.loads(m.group(1))
-            price = safe_float(d.get("gsz"), math.nan)
-            daily = safe_float(d.get("gszzl"), math.nan)
-            if math.isnan(price) or math.isnan(daily):
-                return None, None
-            return price, daily
-        except Exception as e:
-            self.logger.error(f"[-] 解析 FundGZ 基金数据失败 {code}: {e}")
-            return None, None
-
-    def _fetch_fund_estimate_eastmoney_f10(self, code: str) -> tuple[Optional[float], Optional[float]]:
-        """[已废弃] fund.eastmoney.com/f10 接口已失效(2026),保留方法供参考。"""
-        url = f"https://fund.eastmoney.com/f10/F10DataApi.aspx?type=lsjz&code={code}&page=1&per=1"
-        res = self.safe_fetch(url)
-        if not res:
-            return None, None
-        try:
-            row_match = re.search(r"<tbody><tr>(.*?)</tr>", res.text, flags=re.S | re.I)
-            if not row_match:
-                return None, None
-            cols = re.findall(r"<td[^>]*>(.*?)</td>", row_match.group(1), flags=re.S | re.I)
-            if len(cols) < 4:
-                return None, None
-            price = safe_float(re.sub(r"<.*?>", "", cols[1]).strip(), math.nan)
-            daily_text = re.sub(r"<.*?>", "", cols[3]).replace("%", "").strip()
-            daily = safe_float(daily_text, math.nan)
-            if math.isnan(price):
-                return None, None
-            if math.isnan(daily):
-                daily = 0.0
-            return price, daily
-        except Exception as e:
-            self.logger.error(f"[-] 解析 Eastmoney F10 基金数据失败 {code}: {e}")
-            return None, None
-
     def _fetch_fund_estimate_eastmoney(self, code: str) -> tuple[Optional[float], Optional[float]]:
         """通过东方财富 API 获取基金最新净值和日涨跌幅。
         接口: api.fund.eastmoney.com/f10/lsjz ,返回纯 JSON。
@@ -553,11 +515,7 @@ class QuantReporter:
         providers: list[str] = self.cfg["fund"].get("providers", ["eastmoney_api"])
         for provider in providers:
             provider_key = str(provider).strip().lower()
-            if provider_key == "fundgz":
-                price, daily = self._fetch_fund_estimate_fundgz(code)
-            elif provider_key == "eastmoney_f10":
-                price, daily = self._fetch_fund_estimate_eastmoney_f10(code)
-            elif provider_key == "eastmoney_api":
+            if provider_key == "eastmoney_api":
                 price, daily = self._fetch_fund_estimate_eastmoney(code)
             else:
                 self.logger.warning(f"[!] 未识别的基金数据源，已跳过: {provider}")
@@ -580,7 +538,7 @@ class QuantReporter:
             out["ma20"] = s2.iloc[-20:].mean()
         return out
 
-    def fund_advice(self, category: str, daily_change: float, ma5, ma20, price) -> tuple[str, str]:
+    def fund_advice(self, category: str, daily_change: float, ma5: Optional[float], ma20: Optional[float], price: float) -> tuple[str, str]:
         th = self.cfg["fund"]["thresholds"][category]
         trend = "中性"
         if ma5 is not None and ma20 is not None:
