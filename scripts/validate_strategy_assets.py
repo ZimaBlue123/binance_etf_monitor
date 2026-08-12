@@ -178,44 +178,27 @@ def collect_runtime_artifacts(project_dir: Path) -> list[Path]:
     return sorted({path.resolve() for path in matches})
 
 
-def main():
-    config_path = Path(sys.argv[1]).expanduser().resolve() if len(sys.argv) > 1 else DEFAULT_CONFIG_PATH
-    project_dir = config_path.parent.parent if config_path.parent.name == "config" else config_path.parent
-
-    errors: list[str] = []
-    warnings: list[str] = []
-
-    # 1) 读配置
-    try:
-        cfg = load_config(config_path)
-    except Exception as e:
-        print(f"❌ 配置读取失败: {e}")
-        sys.exit(2)
-
-    # 2) 配置结构校验
+def _check_required_top_level(cfg: dict, errors: list) -> dict:
+    """返回 paths 字段(后续步骤用),顺手补 errors。"""
     for k in REQUIRED_TOP_LEVEL:
         if k not in cfg:
             errors.append(f"[config] 缺少顶层字段 `{k}`")
-
     paths = cfg.get("paths", {})
     for k in REQUIRED_PATHS:
         if k not in paths:
             errors.append(f"[config.paths] 缺少字段 `{k}`")
+    return paths
 
-    fund_cfg = cfg.get("fund", {})
-    category_rules = fund_cfg.get("category_rules", {})
-    thresholds = fund_cfg.get("thresholds", {})
 
-    # 3) 类别一致性
-    required_cats = {"QDII", "债基", "行业", "宽基"}
+def _check_category_consistency(category_rules, thresholds, errors, warnings):
+    """类别是否齐全、有无多余。errors/warnings 原地填充。"""
+    required = {"QDII", "债基", "行业", "宽基"}
     rule_cats = set(category_rules.keys())
     thr_cats = set(thresholds.keys())
-
-    missing_rule = required_cats - rule_cats
-    missing_thr = required_cats - thr_cats
-    extra_rule = rule_cats - required_cats
-    extra_thr = thr_cats - required_cats
-
+    missing_rule = required - rule_cats
+    missing_thr = required - thr_cats
+    extra_rule = rule_cats - required
+    extra_thr = thr_cats - required
     if missing_rule:
         errors.append(f"[fund.category_rules] 缺少类别: {sorted(missing_rule)}")
     if missing_thr:
@@ -224,91 +207,79 @@ def main():
         warnings.append(f"[fund.category_rules] 存在额外类别: {sorted(extra_rule)}")
     if extra_thr:
         warnings.append(f"[fund.thresholds] 存在额外类别: {sorted(extra_thr)}")
-
     errors.extend(validate_thresholds(thresholds))
 
-    # 4) 读取 ETF 清单
-    etf_file = resolve_from_project(config_path, paths.get("etf_products_file", "config/etf_products.json"))
-    if not etf_file.exists():
-        errors.append(f"[etf] 文件不存在: {etf_file}")
-        etf_list = []
-    else:
-        try:
-            etf_list = json.loads(etf_file.read_text(encoding="utf-8"))
-        except Exception as e:
-            errors.append(f"[etf] JSON 解析失败: {e}")
-            etf_list = []
 
-    etf_errors = validate_etf_products(etf_list)
-    errors.extend(etf_errors)
+def _load_product_list(file_path: Path, kind: str, errors: list) -> list:
+    """读 JSON 资产清单,失败时 errors 收集一条并返回 []。"""
+    if not file_path.exists():
+        errors.append(f"[{kind}] 文件不存在: {file_path}")
+        return []
+    try:
+        return json.loads(file_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        errors.append(f"[{kind}] JSON 解析失败: {e}")
+        return []
 
-    # 5) 读取 Crypto 清单
-    crypto_file = resolve_from_project(config_path, paths.get("crypto_products_file", "config/crypto_products.json"))
-    if not crypto_file.exists():
-        errors.append(f"[crypto] 文件不存在: {crypto_file}")
-        crypto_list = []
-    else:
-        try:
-            crypto_list = json.loads(crypto_file.read_text(encoding="utf-8"))
-        except Exception as e:
-            errors.append(f"[crypto] JSON 解析失败: {e}")
-            crypto_list = []
 
-    errors.extend(validate_crypto_products(crypto_list))
+def _classify_funds(etf_list, category_rules):
+    """统计分类命中,返回 (class_count, unclassified_examples)。"""
+    counts = {"QDII": 0, "债基": 0, "行业": 0, "宽基": 0}
+    examples: list = []
+    if not isinstance(etf_list, list):
+        return counts, examples
+    for item in etf_list:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        if not name:
+            continue
+        cat = classify_fund(name, category_rules)
+        counts[cat] = counts.get(cat, 0) + 1
+        if cat == "宽基" and len(examples) < 20:
+            examples.append(name)
+    return counts, examples
 
-    # 6) 分类命中率统计
-    class_count = {"QDII": 0, "债基": 0, "行业": 0, "宽基": 0}
-    unclassified_examples = []
 
-    if isinstance(etf_list, list):
-        for item in etf_list:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name", "")).strip()
-            if not name:
-                continue
-            cat = classify_fund(name, category_rules)
-            class_count[cat] = class_count.get(cat, 0) + 1
-            if cat == "宽基" and len(unclassified_examples) < 20:
-                unclassified_examples.append(name)
-
-    total = sum(class_count.values())
-    if total == 0:
-        warnings.append("ETF 列表为空或全部无效，无法统计分类命中率。")
-
-    runtime_artifacts = collect_runtime_artifacts(project_dir)
-    if runtime_artifacts:
-        warnings.append(
-            f"发现 {len(runtime_artifacts)} 个运行产物文件（报告/日志/历史数据）。建议仅本地保存，并通过 .gitignore 排除。"
-        )
-
-    # 7) 输出报告
+def _print_header(config_path, etf_file, crypto_file, etf_total, crypto_total) -> None:
+    """报告头部 + 资产清单统计。"""
     print("\n=== 策略资产校验报告 ===")
     print(f"配置文件: {config_path}")
     print(f"ETF 文件: {etf_file}")
     print(f"Crypto 文件: {crypto_file}")
-    print(f"ETF 总数: {total}")
-    print(f"Crypto 总数: {len(crypto_list) if isinstance(crypto_list, list) else 0}")
+    print(f"ETF 总数: {etf_total}")
+    print(f"Crypto 总数: {crypto_total}")
 
+
+def _print_classification(class_count, etf_total, unclassified_examples) -> None:
+    """分类命中 + 宽基示例段。"""
     print("\n[分类统计]")
     for k in ["QDII", "债基", "行业", "宽基"]:
         v = class_count.get(k, 0)
-        pct = (v / total * 100) if total else 0
+        pct = (v / etf_total * 100) if etf_total else 0
         print(f"- {k}: {v} ({pct:.1f}%)")
 
-    if unclassified_examples:
-        print("\n[宽基(默认分类)示例 - 前20]")
-        for n in unclassified_examples:
-            print(f"- {n}")
+    if not unclassified_examples:
+        return
+    print("\n[宽基(默认分类)示例 - 前20]")
+    for n in unclassified_examples:
+        print(f"- {n}")
 
-    if runtime_artifacts:
-        print("\n[运行产物提示 - 前10]")
-        for path in runtime_artifacts[:10]:
-            try:
-                print(f"- {path.relative_to(project_dir)}")
-            except ValueError:
-                print(f"- {path}")
 
+def _print_artifacts(runtime_artifacts, project_dir) -> None:
+    """运行产物提示段。"""
+    if not runtime_artifacts:
+        return
+    print("\n[运行产物提示 - 前10]")
+    for path in runtime_artifacts[:10]:
+        try:
+            print(f"- {path.relative_to(project_dir)}")
+        except ValueError:
+            print(f"- {path}")
+
+
+def _print_warnings_and_errors(errors, warnings) -> None:
+    """警告与错误段;errors 非空时 sys.exit(1)。"""
     if warnings:
         print("\n[警告]")
         for w in warnings:
@@ -322,6 +293,86 @@ def main():
         sys.exit(1)
 
     print(f"\n校验结果: 通过（警告 {len(warnings)} 条）")
+
+
+def _print_report(
+    config_path, etf_file, crypto_file, etf_total, crypto_total,
+    class_count, unclassified_examples, runtime_artifacts, project_dir,
+    errors, warnings,
+):
+    """格式化输出校验报告。"""
+    _print_header(config_path, etf_file, crypto_file, etf_total, crypto_total)
+    _print_classification(class_count, etf_total, unclassified_examples)
+    _print_artifacts(runtime_artifacts, project_dir)
+    _print_warnings_and_errors(errors, warnings)
+
+
+def main():
+    config_path = (
+        Path(sys.argv[1]).expanduser().resolve()
+        if len(sys.argv) > 1
+        else DEFAULT_CONFIG_PATH
+    )
+    parent_name = config_path.parent.name
+    base = config_path.parent
+    project_dir = base.parent if parent_name == "config" else base
+
+    errors: list = []
+    warnings: list = []
+
+    try:
+        cfg = load_config(config_path)
+    except Exception as e:
+        print(f"❌ 配置读取失败: {e}")
+        sys.exit(2)
+
+    paths = _check_required_top_level(cfg, errors)
+    fund_cfg = cfg.get("fund", {})
+    category_rules = fund_cfg.get("category_rules", {})
+    thresholds = fund_cfg.get("thresholds", {})
+
+    _check_category_consistency(category_rules, thresholds, errors, warnings)
+
+    etf_file = resolve_from_project(
+        config_path,
+        paths.get("etf_products_file", "config/etf_products.json"),
+    )
+    etf_list = _load_product_list(etf_file, "etf", errors)
+    errors.extend(validate_etf_products(etf_list))
+
+    crypto_file = resolve_from_project(
+        config_path,
+        paths.get("crypto_products_file", "config/crypto_products.json"),
+    )
+    crypto_list = _load_product_list(crypto_file, "crypto", errors)
+    errors.extend(validate_crypto_products(crypto_list))
+
+    class_count, unclassified_examples = _classify_funds(etf_list, category_rules)
+    etf_total = sum(class_count.values())
+    if etf_total == 0:
+        warnings.append("ETF 列表为空或全部无效，无法统计分类命中率。")
+
+    runtime_artifacts = collect_runtime_artifacts(project_dir)
+    if runtime_artifacts:
+        warn_msg = (
+            f"发现 {len(runtime_artifacts)} 个运行产物文件"
+            f"（报告/日志/历史数据）。建议仅本地保存，并通过 .gitignore 排除。"
+        )
+        warnings.append(warn_msg)
+
+    _print_report(
+        config_path=config_path,
+        etf_file=etf_file,
+        crypto_file=crypto_file,
+        etf_total=etf_total,
+        crypto_total=len(crypto_list) if isinstance(crypto_list, list) else 0,
+        class_count=class_count,
+        unclassified_examples=unclassified_examples,
+        runtime_artifacts=runtime_artifacts,
+        project_dir=project_dir,
+        errors=errors,
+        warnings=warnings,
+    )
     sys.exit(0)
 
 

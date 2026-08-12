@@ -70,6 +70,41 @@ def _emit(callback, line: str) -> None:
         pass
 
 
+def _reload_main_module(main_py: Path):
+    """从 main_py 路径强制重新加载,返回 module 对象。失败抛 ImportError。"""
+    for mod_name in list(sys.modules.keys()):
+        if mod_name == "binance_etf_configurable" or mod_name.startswith(
+            "binance_etf_configurable."
+        ):
+            del sys.modules[mod_name]
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("binance_etf_configurable", str(main_py))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"无法加载 spec: {main_py}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["binance_etf_configurable"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _dispatch_main(module, config_path: str, callback, result: list) -> None:
+    """根据 config_path 拼 argv 后调 module.main(),把退出码/异常塞 result[0]。"""
+    if config_path:
+        sys.argv = ["binance_etf_configurable.py", config_path]
+    else:
+        sys.argv = ["binance_etf_configurable.py"]
+    _emit(callback, "[run] 调用 main() ...\n")
+    try:
+        module.main()
+        result.append((0, None))
+    except SystemExit as e:
+        code = int(e.code) if e.code is not None else 0
+        result.append((code, None))
+    except BaseException as e:
+        traceback.print_exc()
+        result.append((1, e))
+
+
 def _run_in_thread(workdir: str, config_path: str, callback, result: list):
     """在子线程跑 main(),结果(退出码 / 异常)塞进 result[0]"""
     project_root = Path(workdir).expanduser().resolve()
@@ -85,34 +120,9 @@ def _run_in_thread(workdir: str, config_path: str, callback, result: list):
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
     os.environ.setdefault("PYTHONUTF8", "1")
 
-    # 强制重新加载
-    for mod_name in list(sys.modules.keys()):
-        if mod_name == "binance_etf_configurable" or mod_name.startswith("binance_etf_configurable."):
-            del sys.modules[mod_name]
-
     try:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("binance_etf_configurable", str(main_py))
-        if spec is None or spec.loader is None:
-            raise ImportError(f"无法加载 spec: {main_py}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules["binance_etf_configurable"] = module
-        spec.loader.exec_module(module)
-
-        if config_path:
-            sys.argv = ["binance_etf_configurable.py", config_path]
-        else:
-            sys.argv = ["binance_etf_configurable.py"]
-
-        _emit(callback, "[run] 调用 main() ...\n")
-        try:
-            module.main()
-            result.append((0, None))
-        except SystemExit as e:
-            result.append((int(e.code) if e.code is not None else 0, None))
-        except BaseException as e:
-            traceback.print_exc()
-            result.append((1, e))
+        module = _reload_main_module(main_py)
+        _dispatch_main(module, config_path, callback, result)
     except BaseException as e:
         traceback.print_exc()
         result.append((2, e))

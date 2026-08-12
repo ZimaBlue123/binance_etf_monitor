@@ -96,7 +96,9 @@ def markdown_to_text(content: str) -> str:
 class QuantReporter:
     def __init__(self, config_path: str):
         self.config_path = Path(config_path).expanduser().resolve()
-        self.project_dir = self.config_path.parent.parent if self.config_path.parent.name == "config" else self.config_path.parent
+        parent_name = self.config_path.parent.name
+        base = self.config_path.parent
+        self.project_dir = base.parent if parent_name == "config" else base
         self._pending_debug_logs: list[str] = []
         self.cfg = load_config(str(self.config_path))
 
@@ -173,7 +175,12 @@ class QuantReporter:
         s.headers.update({"User-Agent": ncfg["user_agent"]})
         return s
 
-    def safe_fetch(self, url: str, params: Optional[dict] = None, headers: Optional[dict] = None) -> Optional[requests.Response]:
+    def safe_fetch(
+        self,
+        url: str,
+        params: Optional[dict] = None,
+        headers: Optional[dict] = None,
+    ) -> Optional[requests.Response]:
         ncfg = self.cfg["network"]
         timeout = (ncfg["timeout_connect"], ncfg["timeout_read"])
         merged_headers = {}
@@ -426,7 +433,16 @@ class QuantReporter:
 
         raw_score = 0.35 * rsi_score + 0.35 * bb_score + 0.30 * macd_score + vol_boost
 
-        tr = pd.concat([(high - low).abs(), (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
+        prev_close = close.shift(1)
+        true_ranges = pd.concat(
+            [
+                (high - low).abs(),
+                (high - prev_close).abs(),
+                (low - prev_close).abs(),
+            ],
+            axis=1,
+        )
+        tr = true_ranges.max(axis=1)
         atr = tr.rolling(14).mean().iloc[-1]
         vol_regime = (atr / c) if c > 0 else 0
         penalty = clamp(vol_regime * ccfg["vol_scale"], 0, 0.5)
@@ -530,7 +546,11 @@ class QuantReporter:
     def fund_metrics(self, hist: dict[str, Any], key: str, current_price: float) -> dict[str, Any]:
         """计算基金的 MA5 / MA20 指标，用于趋势判断。"""
         s = self.history_series(hist, key)
-        s2 = pd.concat([s, pd.Series([current_price], dtype=float)], ignore_index=True) if len(s) > 0 else pd.Series([current_price], dtype=float)
+        if len(s) > 0:
+            extra = pd.Series([current_price], dtype=float)
+            s2 = pd.concat([s, extra], ignore_index=True)
+        else:
+            s2 = pd.Series([current_price], dtype=float)
         out = {"ma5": None, "ma20": None}
         if len(s2) >= 5:
             out["ma5"] = s2.iloc[-5:].mean()
@@ -538,7 +558,14 @@ class QuantReporter:
             out["ma20"] = s2.iloc[-20:].mean()
         return out
 
-    def fund_advice(self, category: str, daily_change: float, ma5: Optional[float], ma20: Optional[float], price: float) -> tuple[str, str]:
+    def fund_advice(
+        self,
+        category: str,
+        daily_change: float,
+        ma5: Optional[float],
+        ma20: Optional[float],
+        price: float,
+    ) -> tuple[str, str]:
         th = self.cfg["fund"]["thresholds"][category]
         trend = "中性"
         if ma5 is not None and ma20 is not None:
@@ -567,7 +594,12 @@ class QuantReporter:
             return "cold"
         return "neutral"
 
-    def analyze_fund(self, name: str, code: str, hist: dict[str, Any]) -> tuple[Optional[str], Optional[float], Optional[str], Optional[str]]:
+    def analyze_fund(
+        self,
+        name: str,
+        code: str,
+        hist: dict[str, Any],
+    ) -> tuple[Optional[str], Optional[float], Optional[str], Optional[str]]:
         price, daily_change, provider = self.fetch_fund_estimate(code)
         if price is None:
             return None, None, None, None
@@ -577,7 +609,10 @@ class QuantReporter:
         advice, reason = self.fund_advice(category, daily_change, m["ma5"], m["ma20"], price)
         provider_text = (provider or "unknown").upper()
 
-        ma_txt = "N/A" if m["ma5"] is None or m["ma20"] is None else f"MA5={m['ma5']:.4f}, MA20={m['ma20']:.4f}"
+        if m["ma5"] is None or m["ma20"] is None:
+            ma_txt = "N/A"
+        else:
+            ma_txt = f"MA5={m['ma5']:.4f}, MA20={m['ma20']:.4f}"
 
         msg = (
             f"- **{name} [{code}]** ({category}): {price:.4f} | 日变动 **{daily_change:+.2f}%** | {advice}\n"
@@ -585,67 +620,112 @@ class QuantReporter:
         )
         return msg, price, provider, self.fund_bucket(advice)
 
+    def _primary_provider(self, kind: str) -> Optional[str]:
+        """取 providers 列表首项;列表为空时返回 None(后续比较恒为'备援')。"""
+        providers = self.cfg[kind].get("providers") or []
+        if not providers:
+            return None
+        return str(providers[0]).strip().lower()
+
+    def _scan_crypto(
+        self,
+        report: list[str],
+        hist: dict[str, Any],
+        today: str,
+        primary: Optional[str],
+    ) -> tuple[int, list[str]]:
+        """跑加密资产分析,返回 (有效数, 备援列表)。"""
+        report.append("**[加密资产 | 日线多因子]**")
+        valid = 0
+        fallbacks: list[str] = []
+        for c in self.crypto_products:
+            msg, price, provider = self.analyze_crypto(c["name"], c["symbol"])
+            if not msg:
+                continue
+            report.append(msg)
+            hist.setdefault(f"CRYPTO_{c['symbol']}", {})[today] = price
+            valid += 1
+            if provider and provider != primary:
+                fallbacks.append(f"{c['name']}({c['symbol']}) -> {provider.upper()}")
+        return valid, fallbacks
+
+    def _scan_funds(
+        self,
+        report: list[str],
+        hist: dict[str, Any],
+        today: str,
+        primary: Optional[str],
+    ) -> tuple[int, list[str], dict[str, list[str]]]:
+        """跑基金分析,返回 (有效数, 备援列表, 分桶后的报告段)。"""
+        report.append("\n**[基金 | 分类阈值模型（QDII/债基/行业/宽基）]**")
+        valid = 0
+        fallbacks: list[str] = []
+        sections: dict[str, list[str]] = {"hot": [], "cold": [], "neutral": []}
+        for f in self.etf_products:
+            msg, price, provider, bucket = self.analyze_fund(f["name"], f["code"], hist)
+            if not msg:
+                continue
+            sections[bucket or "neutral"].append(msg)
+            hist.setdefault(f"FUND_{f['code']}", {})[today] = price
+            valid += 1
+            if provider and provider != primary:
+                fallbacks.append(f"{f['name']}[{f['code']}] -> {provider.upper()}")
+        return valid, fallbacks, sections
+
+    def _render_fund_sections(self, report: list[str], sections: dict[str, list[str]]) -> None:
+        """把分桶后的基金段拼到 report。中性段超阈值时折叠。"""
+        titles = [("hot", "🔥 偏热"), ("cold", "🧊 偏冷"), ("neutral", "⚪ 中性")]
+        for key, title in titles:
+            items = sections[key]
+            report.append(f"\n***{title}（{len(items)}）***")
+            if not items:
+                report.append("- 无")
+                continue
+            if key == "neutral" and len(items) > self.max_neutral_funds_in_report:
+                visible = items[: self.max_neutral_funds_in_report]
+                hidden = len(items) - self.max_neutral_funds_in_report
+                report.extend(visible)
+                report.append(f"- 其余 {hidden} 条中性基金已省略，可按需查看明细文件")
+            else:
+                report.extend(items)
+
+    def _build_fallback_summary(
+        self,
+        crypto_fb: list[str],
+        fund_fb: list[str],
+    ) -> str:
+        """生成数据源备援摘要文本。"""
+        lines = ["**[数据源备援摘要]**"]
+        if crypto_fb:
+            lines.append(f"- 加密资产备援 {len(crypto_fb)} 个: " + "；".join(crypto_fb))
+        else:
+            lines.append("- 加密资产: 今日未触发备援")
+        if fund_fb:
+            lines.append(f"- 基金备援 {len(fund_fb)} 个: " + "；".join(fund_fb))
+        else:
+            lines.append("- 基金: 今日未触发备援")
+        return "\n".join(lines) + "\n"
+
     def run(self):
         self.logger.info("=== 🚀 日报监控启动（配置驱动）===")
-        self.logger.info(
-            f"配置文件: {self.config_path} | 项目根: {self.project_dir} | 工作目录: {self.work_dir}"
+        cfg_msg = (
+            f"配置文件: {self.config_path} | "
+            f"项目根: {self.project_dir} | "
+            f"工作目录: {self.work_dir}"
         )
+        self.logger.info(cfg_msg)
         hist = self.load_history()
         today = datetime.now().strftime("%Y-%m-%d")
 
-        report = [f"📊 **策略日报 ({today})**\n"]
-        valid_count = 0
-        # 主源取自 providers 列表首项;若列表为空则视为 None,后续比较恒为"备援"
-        crypto_providers = self.cfg["crypto"].get("providers") or ["binance"]
-        fund_providers = self.cfg["fund"].get("providers") or ["eastmoney_api"]
-        crypto_primary = str(crypto_providers[0]).strip().lower() if crypto_providers else None
-        fund_primary = str(fund_providers[0]).strip().lower() if fund_providers else None
-        crypto_fallback_used = []
-        fund_fallback_used = []
-        fund_sections = {
-            "hot": [],
-            "cold": [],
-            "neutral": [],
-        }
+        report: list[str] = [f"📊 **策略日报 ({today})**\n"]
+        crypto_primary = self._primary_provider("crypto")
+        fund_primary = self._primary_provider("fund")
 
-        report.append("**[加密资产 | 日线多因子]**")
-        for c in self.crypto_products:
-            msg, price, provider = self.analyze_crypto(c["name"], c["symbol"])
-            if msg:
-                report.append(msg)
-                hist.setdefault(f"CRYPTO_{c['symbol']}", {})[today] = price
-                valid_count += 1
-                if provider and provider != crypto_primary:
-                    crypto_fallback_used.append(f"{c['name']}({c['symbol']}) -> {provider.upper()}")
+        crypto_valid, crypto_fb = self._scan_crypto(report, hist, today, crypto_primary)
+        fund_valid, fund_fb, sections = self._scan_funds(report, hist, today, fund_primary)
+        valid_count = crypto_valid + fund_valid
 
-        report.append("\n**[基金 | 分类阈值模型（QDII/债基/行业/宽基）]**")
-        for f in self.etf_products:
-            msg, price, provider, bucket = self.analyze_fund(f["name"], f["code"], hist)
-            if msg:
-                fund_sections[bucket or "neutral"].append(msg)
-                hist.setdefault(f"FUND_{f['code']}", {})[today] = price
-                valid_count += 1
-                if provider and provider != fund_primary:
-                    fund_fallback_used.append(f"{f['name']}[{f['code']}] -> {provider.upper()}")
-
-        fund_group_titles = [
-            ("hot", "🔥 偏热"),
-            ("cold", "🧊 偏冷"),
-            ("neutral", "⚪ 中性"),
-        ]
-        for key, title in fund_group_titles:
-            items = fund_sections[key]
-            report.append(f"\n***{title}（{len(items)}）***")
-            if items:
-                if key == "neutral" and len(items) > self.max_neutral_funds_in_report:
-                    visible_items = items[:self.max_neutral_funds_in_report]
-                    hidden_count = len(items) - self.max_neutral_funds_in_report
-                    report.extend(visible_items)
-                    report.append(f"- 其余 {hidden_count} 条中性基金已省略，可按需查看明细文件")
-                else:
-                    report.extend(items)
-            else:
-                report.append("- 无")
+        self._render_fund_sections(report, sections)
 
         if valid_count == 0:
             self.logger.error("❌ 未获取到有效行情，退出。")
@@ -658,16 +738,7 @@ class QuantReporter:
 
         self.atomic_write(hist)
 
-        summary = ["**[数据源备援摘要]**"]
-        if crypto_fallback_used:
-            summary.append(f"- 加密资产备援 {len(crypto_fallback_used)} 个: " + "；".join(crypto_fallback_used))
-        else:
-            summary.append("- 加密资产: 今日未触发备援")
-        if fund_fallback_used:
-            summary.append(f"- 基金备援 {len(fund_fallback_used)} 个: " + "；".join(fund_fallback_used))
-        else:
-            summary.append("- 基金: 今日未触发备援")
-        report.insert(1, "\n".join(summary) + "\n")
+        report.insert(1, self._build_fallback_summary(crypto_fb, fund_fb))
         report_content = "\n".join(report)
         md_file, txt_file = self.write_report_files(today, report_content)
 
