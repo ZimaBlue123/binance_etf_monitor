@@ -1,0 +1,15 @@
+# Runtime dependencies for binance_etf_monitor
+#
+# Tested with Python 3.10-3.14 on Windows / macOS / Linux.
+#   pip install -r requirements.txt
+#   pip install -r requirements.txt --upgrade      # 升级到范围内最新版
+#
+# 钉死下界、放开上界(>=X,<Y 范围约束):与历史部署兼容,允许 patch/minor 自动更新。
+# 注意:这不是真正的 caret(~=)语义;遇到 breaking change 由我们手动 bump 上界。
+
+requests>=2.31,<3.0
+PyYAML>=6.0,<7.0
+pandas>=2.0,<3.0
+
+# 间接但必需的传输层依赖(显式声明,避免 urllib3 自动降级)
+urllib3>=2.0,<3.0

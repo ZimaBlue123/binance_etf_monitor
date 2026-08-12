@@ -1,0 +1,31 @@
+// Top-level build file
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.5.0'
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24'
+        // Chaquopy — 把 Python 解释器塞进 APK,免装 Termux
+        // 17.x 支持更新的 pandas/PyYAML,wheel 兼容性更好
+        classpath 'com.chaquo.python:gradle:17.0.0'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+// Release 签名配置 — keystore 由 gen-keystore.ps1 生成,不进 git
+def keystorePropertiesFile = rootProject.file("keystore/keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+// 暴露到 rootProject.ext,让 app/build.gradle 能读到
+rootProject.ext.keystoreProperties = keystoreProperties

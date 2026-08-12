@@ -1,0 +1,4 @@
+# Keystore & secrets — never commit
+keystore/*.jks
+keystore/*.keystore
+keystore/keystore.properties

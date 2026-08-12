@@ -1,0 +1,5 @@
+# Keystore artifacts (the .properties may be committed on personal repos for dev convenience,
+# but the .jks/.keystore + credentials must never be)
+keystore/*.jks
+keystore/*.keystore
+!keystore/.gitkeep
