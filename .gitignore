@@ -1,71 +1,85 @@
-# ===== OS =====
+# ============================================================
+#  Binance ETF Monitor — 全局忽略规则
+#  按类别分区,新增条目请保持分区语义,便于审计。
+#  注意: 路径默认已**不**递归,需要递归的请用 **/<name>/ 显式标注。
+# ============================================================
+
+# ===== OS metadata =====
 .DS_Store
 Thumbs.db
 Desktop.ini
 ehthumbs.db
 $RECYCLE.BIN/
 
-# ===== Python =====
+# ===== Python (recursively) =====
+**/__pycache__/
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-.coverage.*
-htmlcov/
-.tox/
-.nox/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.coverage
+**/.coverage.*
+**/htmlcov/
+**/.tox/
+**/.nox/
 *.egg-info/
+**/*.egg-info/
 .eggs/
-build/
-dist/
-.venv/
-venv/
-env/
-ENV/
-.pyre/
-.pytype/
+**/build/
+**/dist/
+**/.venv/
+**/venv/
+**/env/
+**/ENV/
+**/.pyre/
+**/.pytype/
 
-# ===== Android / Gradle =====
-.gradle/
-.kotlin/
-local.properties
-captures/
+# ===== Android / Gradle (recursively) =====
+**/.gradle/
+**/.kotlin/
+**/local.properties
+**/captures/
 *.iml
 *.hprof
-.cxx/
-android/app/release/
-android/app/debug/
-android/app/build/
+**/.cxx/
+**/app/release/
+**/app/debug/
 
-# ===== APK build artifacts =====
+# ===== APK / AAB build artifacts =====
 *.apk
 *.aab
 
-# ===== Android signing (sensitive) =====
+# ===== Android signing (sensitive, recursive) =====
 *.jks
-keystore.properties
+**/*.jks
+**/keystore.properties
+**/keystore/*.keystore
+**/keystore/*.jks
 
-# ===== Worktrees (local-only Android build environment) =====
+# ===== Local-only worktrees & AI workspace =====
 .worktrees/
-
-# ===== AI assistant workspace (local-only) =====
 .workbuddy/
 
-# ===== IDE =====
+# ===== IDE / editor =====
 .idea/
 .vscode/
 .fleet/
 .idea_modules/
 *.ipr
 *.iws
+*.swp
+*.swo
+*.swn
+*~
 
-# ===== Environment and secrets =====
+# ===== Environment & secrets (recursive) =====
 .env
 .env.*
+**/.env
+**/.env.*
 *.env
 *.key
 *.pem
@@ -73,12 +87,13 @@ keystore.properties
 *.pfx
 *.crt
 *.cer
-secrets/
+**/secrets/
 secrets.yaml
 secrets.json
 credentials.*
+**/credentials.*
 
-# ===== Runtime artifacts =====
+# ===== Runtime artifacts (this project writes to output/) =====
 output/
 logs/
 reports/
@@ -91,27 +106,41 @@ temp/
 *.sock
 nohup.out
 
-# ===== Local databases and caches =====
+# ===== Local databases & caches =====
 *.sqlite
 *.sqlite3
 *.db
 *.cache
+**/*.sqlite
+**/*.sqlite3
+**/*.db
+**/*.cache
 
 # ===== OS scratch / editor backups =====
-*.swp
-*.swo
-*.swn
-*~
 *.bak
 *.tmp
 *.orig
 *.rej
+**/*.bak
+**/*.tmp
+**/*.orig
+**/*.rej
 
 # ===== Jupyter / notebook =====
-.ipynb_checkpoints/
+**/.ipynb_checkpoints/
 
 # ===== Coverage / profiling =====
 coverage.xml
+**/coverage.xml
 *.gcda
 *.gcno
 profile.json
+
+# ===== Chaquopy embedded Python (Android build) =====
+# Android `app/build/python/` 是 Chaquopy 构建时生成的嵌入式 venv;
+# **/build/ 已拦截,但此处冗余声明以提高可读性。
+**/app/build/python/
+
+# ===== Local marker files (Android runtime state) =====
+.last_run
+**/.last_run

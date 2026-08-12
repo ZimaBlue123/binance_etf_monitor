@@ -41,6 +41,12 @@ This project is a daily monitoring script for personal research. It tracks both 
 - Python 3.10 或更高版本
 - 依赖包：`pandas`、`requests`、`PyYAML`、`urllib3`
 
+> **Android 端依赖差异说明**：`requirements.txt` 的 `pandas>=2.0,<4.0` 是宽松区间;
+> Android APK 由 Chaquopy 构建,可在 `android/app/build.gradle` 的 `chaquopy { pip { ... } }`
+> 块中单独锁定(当前固定为 `pandas==2.1.3`),原因是 Chaquopy 17 自带的 PyPI 镜像
+> 只有这两个版本的预编译 wheel,**不能跨版本浮动**。如需升级 Android 端 pandas,
+> 请同时验证 Chaquopy 版本兼容性后再调整。
+
 安装示例：
 
 ```bash
@@ -234,6 +240,13 @@ It is suitable for local execution, scheduled runs on a server, or Windows Task 
 
 - Python 3.10+
 - Dependencies: `pandas`, `requests`, `PyYAML`, `urllib3`
+
+> **Android dependency note**: `requirements.txt` allows `pandas>=2.0,<4.0` for the
+> Python CLI/desktop path. The Android APK is built by Chaquopy and pins `pandas==2.1.3`
+> inside `android/app/build.gradle` (`chaquopy { pip { install ... } }`), because the
+> Chaquopy 17 PyPI mirror only ships pre-built wheels for those two versions and cannot
+> tolerate a floating range. If you need to upgrade pandas on Android, verify Chaquopy
+> compatibility first.
 
 Install:
 
