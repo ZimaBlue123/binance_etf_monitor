@@ -28,10 +28,12 @@ This project is a daily monitoring script for personal research. It tracks both 
 - `config/strategy_config.yaml`：主配置文件
 - `config/crypto_products.json`：加密资产列表
 - `config/etf_products.json`：基金列表
+- `rebuild_apk.bat`：一键重建 Android APK（见下方「Android 应用」）
 - `run_monitor.bat`：Windows 一键运行主程序
 - `run_monitor.sh`：Linux / macOS 一键运行主程序
 - `validate_assets.bat`：Windows 一键执行自检
 - `requirements.txt`：Python 依赖声明
+- `android/`：Android 客户端源码与构建配置（详见 [`android/BUILD.md`](./android/BUILD.md)）
 - `output/`：运行后生成的本地数据目录，不应提交
 
 ### 环境要求
@@ -130,6 +132,35 @@ git diff --cached
 
 重点确认暂存区里没有 `output/`、`.env`、日志、报告或其他私有文件。
 
+### Android 应用
+
+项目附带一个 Android 客户端（`android/`），在手机端内置 Python 运行时与本监控脚本，支持定时后台执行并查看当日策略报告。
+
+- `android/BUILD.md`：Android 构建说明（环境要求、手动构建步骤）
+- `android/bump_version.ps1`：版本号递增辅助脚本
+- `rebuild_apk.bat`：**一键重建 APK（推荐）**
+
+#### 一键重建 APK
+
+更新 `config/` 或任何源码后，双击运行根目录的 `rebuild_apk.bat`，自动完成：
+
+1. 检查构建环境（JDK / SDK / Gradle / 签名配置）
+2. 同步项目文件到 APK 资产
+3. MD5 校验资产一致性（不一致自动中止）
+4. 自动递增版本号（versionCode+1、versionName 末位+1，保证手机可覆盖安装）
+5. 清理构建残留
+6. 执行 Gradle release 构建
+7. 交付 `BinanceETFMonitor-vX.Y.Z-release.apk` 到仓库根目录
+
+| 命令 | 作用 |
+|---|---|
+| `rebuild_apk.bat` | 默认：自动递增版本号 + 构建 |
+| `rebuild_apk.bat same` | 保持当前版本号不变，仅重新打包 |
+| `rebuild_apk.bat check` | 只检查环境与资产同步，不构建 |
+| 任意命令加 `nopause` | 结束后不暂停（如 `rebuild_apk.bat nopause`） |
+
+手动构建请参考 [`android/BUILD.md`](./android/BUILD.md)。
+
 ### 定时执行示例
 
 Windows 可使用“任务计划程序”，调用：
@@ -191,10 +222,12 @@ It is suitable for local execution, scheduled runs on a server, or Windows Task 
 - `config/strategy_config.yaml`: main runtime configuration
 - `config/crypto_products.json`: crypto watchlist
 - `config/etf_products.json`: fund watchlist
+- `rebuild_apk.bat`: one-click Android APK rebuild (see "Android App" below)
 - `run_monitor.bat`: one-click launcher for Windows
 - `run_monitor.sh`: one-click launcher for Linux / macOS
 - `validate_assets.bat`: one-click validation for Windows
 - `requirements.txt`: Python dependency manifest
+- `android/`: Android client source and build config (see [`android/BUILD.md`](./android/BUILD.md))
 - `output/`: local output directory generated after execution and should not be committed
 
 ### Requirements
@@ -293,6 +326,35 @@ git diff --cached
 
 Pay special attention to make sure the staged set does not contain `output/`, `.env`, logs, reports, or any other private files.
 
+### Android App
+
+The project also ships an Android client under `android/` that bundles the Python runtime and the monitor scripts, supporting scheduled background execution and on-device report viewing.
+
+- `android/BUILD.md`: Android build instructions (environment requirements, manual build steps)
+- `android/bump_version.ps1`: helper script to bump `versionCode` / `versionName`
+- `rebuild_apk.bat`: **one-click APK rebuild (recommended)**
+
+#### One-Click APK Rebuild
+
+After updating `config/` or any source file, double-click `rebuild_apk.bat` at the repo root:
+
+1. Check the build environment (JDK / SDK / Gradle / signing config)
+2. Sync project files into APK assets
+3. Verify asset consistency via MD5 (abort on mismatch)
+4. Auto-bump the version (`versionCode`+1, `versionName` minor+1) so the phone can install over the old APK
+5. Clean leftover build state
+6. Run the Gradle release build
+7. Deliver `BinanceETFMonitor-vX.Y.Z-release.apk` to the repo root
+
+| Command | Effect |
+|---|---|
+| `rebuild_apk.bat` | default: auto-bump version + build |
+| `rebuild_apk.bat same` | keep the current version, rebuild only |
+| `rebuild_apk.bat check` | check environment and asset sync only, no build |
+| append `nopause` | do not pause at the end (e.g. `rebuild_apk.bat nopause`) |
+
+For manual builds see [`android/BUILD.md`](./android/BUILD.md).
+
 ### Scheduling
 
 - Windows: use Task Scheduler with `run_monitor.bat`
@@ -323,7 +385,7 @@ Then replace the sample path in `cron.example` with your actual deployment direc
 
 This project is released under the MIT License. See `LICENSE` for details.
 
-## 进一步阅读
+## Further Reading
 
-- [CONTRIBUTING.md](./CONTRIBUTING.md) — 提交规范与仓库卫生红线
-- [CHANGELOG.md](./CHANGELOG.md) — 历次值得留痕的改动
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — contribution guidelines and repository hygiene rules
+- [CHANGELOG.md](./CHANGELOG.md) — notable changes over time
