@@ -107,10 +107,20 @@ def markdown_to_text(content: str) -> str:
 class QuantReporter:
     def __init__(self, config_path: str | Path):
         self.config_path = Path(config_path).expanduser().resolve()
+        self._pending_debug_logs: list[str] = []
+        self._setup_paths()
+        self._setup_timezone()
+        self._setup_logger()
+        self.session = self._build_session()
+        self._load_asset_lists()
+        self.max_neutral_funds_in_report = int(
+            self.cfg.get("fund", {}).get("report", {}).get("max_neutral_items", 20)
+        )
+
+    def _setup_paths(self) -> None:
         parent_name = self.config_path.parent.name
         base = self.config_path.parent
         self.project_dir = base.parent if parent_name == "config" else base
-        self._pending_debug_logs: list[str] = []
         self.cfg = load_config(self.config_path)
 
         if "work_dir" not in self.cfg or not self.cfg["work_dir"]:
@@ -130,15 +140,16 @@ class QuantReporter:
         self.etf_file = self._resolve_path(paths["etf_products_file"])
         self.crypto_file = self._resolve_path(paths["crypto_products_file"])
 
+    def _setup_timezone(self) -> None:
         os.environ["TZ"] = str(self.cfg.get("timezone", "Asia/Shanghai"))
         try:
             time.tzset()
         except (AttributeError, OSError):
-            # Windows / 嵌入式环境不支持 tzset,仅记录后继续
             self._pending_debug_logs.append(
                 f"time.tzset() 不可用,使用环境默认时区 TZ={os.environ.get('TZ', '<unset>')}"
             )
 
+    def _setup_logger(self) -> None:
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
         self.logger = logging.getLogger("binance_etf_monitor")
         self.logger.setLevel(logging.INFO)
@@ -154,13 +165,11 @@ class QuantReporter:
             sh.setFormatter(formatter)
             self.logger.addHandler(sh)
 
-        # 刷新 logger 初始化前积累的调试信息
         for msg in self._pending_debug_logs:
             self.logger.debug(msg)
         self._pending_debug_logs.clear()
 
-        self.session = self._build_session()
-        # 资产清单在 logger 初始化后加载
+    def _load_asset_lists(self) -> None:
         try:
             self.crypto_products = load_json(self.crypto_file)
         except (FileNotFoundError, ValueError) as e:
@@ -171,10 +180,6 @@ class QuantReporter:
         except (FileNotFoundError, ValueError) as e:
             self.logger.error(f"[!] ETF 资产清单加载失败: {e}")
             raise
-
-        self.max_neutral_funds_in_report = int(
-            self.cfg.get("fund", {}).get("report", {}).get("max_neutral_items", 20)
-        )
 
     def _resolve_path(self, raw_path: str | Path) -> Path:
         p = Path(raw_path).expanduser()
@@ -327,7 +332,11 @@ class QuantReporter:
         """通过 Binance.US 获取日线 OHLCV（Binance 主站在部分地区被封）。"""
         ccfg = self.cfg.get("crypto", {})
         url = "https://api.binance.us/api/v3/klines"
-        params = {"symbol": f"{symbol}USDT", "interval": ccfg.get("interval", "1d"), "limit": ccfg.get("kline_limit", 100)}
+        params = {
+            "symbol": f"{symbol}USDT",
+            "interval": ccfg.get("interval", "1d"),
+            "limit": ccfg.get("kline_limit", 100),
+        }
         res = self.safe_fetch(url, params=params)
         if not res:
             return None
@@ -355,7 +364,11 @@ class QuantReporter:
         ccfg = self.cfg.get("crypto", {})
         url = "https://api.kucoin.com/api/v1/market/candles"
         # KuCoin 默认只返回最近部分数据，需显式传递时间范围或依赖其默认 limit
-        params = {"type": "1day", "symbol": f"{symbol}-USDT", "pageSize": str(ccfg.get("kline_limit", 100))}
+        params = {
+            "type": "1day",
+            "symbol": f"{symbol}-USDT",
+            "pageSize": str(ccfg.get("kline_limit", 100)),
+        }
         res = self.safe_fetch(url, params=params)
         if not res:
             return None

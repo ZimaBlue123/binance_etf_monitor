@@ -1,0 +1,13 @@
+[flake8]
+max-line-length = 120
+max-complexity = 10
+exclude =
+    .git,
+    __pycache__,
+    .pytest_cache,
+    .ruff_cache,
+    .venv,
+    venv,
+    android/app/build,
+    build,
+    dist
