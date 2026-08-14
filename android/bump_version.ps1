@@ -4,10 +4,10 @@
 #   powershell -File bump_version.ps1 -GradleFile <path> [-Same]
 #
 # 行为:
-#   默认: versionCode +1, versionName 末位 +1 (如 1.2.3 -> 1.2.4),写回 build.gradle
-#   -Same: 不修改文件,仅读取并输出当前版本号
+#   默认: versionCode +1, versionName 末位 +1 (如 1.2.3 -> 1.2.4), 写回 build.gradle
+#   -Same: 不修改文件，仅读取并输出当前版本号
 #
-# 输出: "<versionCode> <versionName>" (空格分隔,供批处理捕获)
+# 输出: "<versionCode> <versionName>" (空格分隔, 供批处理捕获)
 
 param(
     [Parameter(Mandatory = $true)]
@@ -36,7 +36,7 @@ if (-not $Same) {
 
     $c = $c -replace 'versionCode\s+\d+', ('versionCode ' + $newVc)
     $c = $c -replace "versionName\s+'[^']+'", ("versionName '" + $newVn + "'")
-    # UTF-8 无 BOM 写回,避免 Gradle 解析 BOM 问题
+    # UTF-8 无 BOM 写回, 避免 Gradle 解析 BOM 问题
     [System.IO.File]::WriteAllText($GradleFile, $c, (New-Object System.Text.UTF8Encoding($false)))
 } else {
     $newVc = $vc

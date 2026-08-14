@@ -43,10 +43,11 @@ RUNTIME_ARTIFACT_PATTERNS = [
 ]
 
 
-def configure_console_encoding():
+def configure_console_encoding() -> None:
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
 
@@ -54,21 +55,28 @@ def configure_console_encoding():
 configure_console_encoding()
 
 
-def load_config(path: Path) -> dict[str, Any]:
+def load_config(path: Path | str) -> dict[str, Any]:
     """读取并返回配置字典，支持 YAML 和 JSON 格式。"""
-    if not path.exists():
-        raise FileNotFoundError(f"配置文件不存在: {path}")
-    if path.suffix.lower() in [".yaml", ".yml"]:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    p = Path(path).expanduser().resolve()
+    if not p.is_file():
+        raise FileNotFoundError(f"配置文件不存在或不是常规文件: {path}")
+    if p.suffix.lower() in [".yaml", ".yml"]:
+        try:
+            data = yaml.safe_load(p.read_text(encoding="utf-8"))
+        except yaml.YAMLError as e:
+            raise ValueError(f"YAML 配置文件解析失败: {path} | {e}") from e
         if not isinstance(data, dict):
             raise ValueError(f"配置文件内容无效（期望 dict）: {path}")
         return data
-    if path.suffix.lower() == ".json":
-        data = json.loads(path.read_text(encoding="utf-8"))
+    if p.suffix.lower() == ".json":
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise ValueError(f"JSON 配置文件解析失败: {path} | {e}") from e
         if not isinstance(data, dict):
             raise ValueError(f"配置文件内容无效（期望 dict）: {path}")
         return data
-    raise ValueError("配置文件仅支持 .yaml/.yml/.json")
+    raise ValueError(f"配置文件仅支持 .yaml/.yml/.json: {path}")
 
 
 def classify_fund(name: str, category_rules: dict[str, dict[str, Any]]) -> str:
@@ -178,19 +186,27 @@ def collect_runtime_artifacts(project_dir: Path) -> list[Path]:
     return sorted({path.resolve() for path in matches})
 
 
-def _check_required_top_level(cfg: dict, errors: list) -> dict:
+def _check_required_top_level(cfg: dict[str, Any], errors: list[str]) -> dict[str, Any]:
     """返回 paths 字段(后续步骤用),顺手补 errors。"""
     for k in REQUIRED_TOP_LEVEL:
         if k not in cfg:
             errors.append(f"[config] 缺少顶层字段 `{k}`")
     paths = cfg.get("paths", {})
+    if not isinstance(paths, dict):
+        errors.append("[config] 字段 `paths` 必须为字典")
+        return {}
     for k in REQUIRED_PATHS:
         if k not in paths:
             errors.append(f"[config.paths] 缺少字段 `{k}`")
     return paths
 
 
-def _check_category_consistency(category_rules, thresholds, errors, warnings):
+def _check_category_consistency(
+    category_rules: dict[str, dict[str, Any]],
+    thresholds: dict[str, dict[str, Any]],
+    errors: list[str],
+    warnings: list[str],
+) -> None:
     """类别是否齐全、有无多余。errors/warnings 原地填充。"""
     required = {"QDII", "债基", "行业", "宽基"}
     rule_cats = set(category_rules.keys())
@@ -210,22 +226,26 @@ def _check_category_consistency(category_rules, thresholds, errors, warnings):
     errors.extend(validate_thresholds(thresholds))
 
 
-def _load_product_list(file_path: Path, kind: str, errors: list) -> list:
+def _load_product_list(file_path: Path, kind: str, errors: list[str]) -> list[Any]:
     """读 JSON 资产清单,失败时 errors 收集一条并返回 []。"""
-    if not file_path.exists():
+    if not file_path.is_file():
         errors.append(f"[{kind}] 文件不存在: {file_path}")
         return []
     try:
-        return json.loads(file_path.read_text(encoding="utf-8"))
+        data = json.loads(file_path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
     except Exception as e:
         errors.append(f"[{kind}] JSON 解析失败: {e}")
         return []
 
 
-def _classify_funds(etf_list, category_rules):
+def _classify_funds(
+    etf_list: list[Any],
+    category_rules: dict[str, dict[str, Any]],
+) -> tuple[dict[str, int], list[str]]:
     """统计分类命中,返回 (class_count, unclassified_examples)。"""
     counts = {"QDII": 0, "债基": 0, "行业": 0, "宽基": 0}
-    examples: list = []
+    examples: list[str] = []
     if not isinstance(etf_list, list):
         return counts, examples
     for item in etf_list:
@@ -241,7 +261,13 @@ def _classify_funds(etf_list, category_rules):
     return counts, examples
 
 
-def _print_header(config_path, etf_file, crypto_file, etf_total, crypto_total) -> None:
+def _print_header(
+    config_path: Path,
+    etf_file: Path,
+    crypto_file: Path,
+    etf_total: int,
+    crypto_total: int,
+) -> None:
     """报告头部 + 资产清单统计。"""
     print("\n=== 策略资产校验报告 ===")
     print(f"配置文件: {config_path}")
@@ -251,7 +277,11 @@ def _print_header(config_path, etf_file, crypto_file, etf_total, crypto_total) -
     print(f"Crypto 总数: {crypto_total}")
 
 
-def _print_classification(class_count, etf_total, unclassified_examples) -> None:
+def _print_classification(
+    class_count: dict[str, int],
+    etf_total: int,
+    unclassified_examples: list[str],
+) -> None:
     """分类命中 + 宽基示例段。"""
     print("\n[分类统计]")
     for k in ["QDII", "债基", "行业", "宽基"]:
@@ -266,7 +296,7 @@ def _print_classification(class_count, etf_total, unclassified_examples) -> None
         print(f"- {n}")
 
 
-def _print_artifacts(runtime_artifacts, project_dir) -> None:
+def _print_artifacts(runtime_artifacts: list[Path], project_dir: Path) -> None:
     """运行产物提示段。"""
     if not runtime_artifacts:
         return
@@ -278,7 +308,7 @@ def _print_artifacts(runtime_artifacts, project_dir) -> None:
             print(f"- {path}")
 
 
-def _print_warnings_and_errors(errors, warnings) -> None:
+def _print_warnings_and_errors(errors: list[str], warnings: list[str]) -> None:
     """警告与错误段;errors 非空时 sys.exit(1)。"""
     if warnings:
         print("\n[警告]")
@@ -296,10 +326,18 @@ def _print_warnings_and_errors(errors, warnings) -> None:
 
 
 def _print_report(
-    config_path, etf_file, crypto_file, etf_total, crypto_total,
-    class_count, unclassified_examples, runtime_artifacts, project_dir,
-    errors, warnings,
-):
+    config_path: Path,
+    etf_file: Path,
+    crypto_file: Path,
+    etf_total: int,
+    crypto_total: int,
+    class_count: dict[str, int],
+    unclassified_examples: list[str],
+    runtime_artifacts: list[Path],
+    project_dir: Path,
+    errors: list[str],
+    warnings: list[str],
+) -> None:
     """格式化输出校验报告。"""
     _print_header(config_path, etf_file, crypto_file, etf_total, crypto_total)
     _print_classification(class_count, etf_total, unclassified_examples)

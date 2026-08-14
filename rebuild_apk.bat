@@ -1,24 +1,25 @@
 @echo off
 setlocal enabledelayedexpansion
-chcp 936 >nul
+chcp 65001 >nul
 cd /d "%~dp0"
 
 rem ============================================================
-rem  rebuild_apk.bat ¡ª Binance ETF Monitor APK Ò»¼üÖØ½¨
+rem  rebuild_apk.bat â€” Binance ETF Monitor APK ä¸€é”®æ„å»º
 rem
-rem  ÓÃ·¨:
-rem    rebuild_apk.bat            ×Ô¶¯µİÔö°æ±¾ºÅ²¢¹¹½¨ (Ä¬ÈÏ,ÍÆ¼ö)
-rem    rebuild_apk.bat same       ±£³Öµ±Ç°°æ±¾ºÅ²»±ä
-rem    rebuild_apk.bat check      ½ö¼ì²é»·¾³Óë×Ê²úÍ¬²½,²»¹¹½¨
-rem    ÈÎÒâÄ£Ê½×·¼Ó nopause       ½áÊøºó²»ÔİÍ£ (Èç rebuild_apk.bat same nopause)
+rem  ç”¨æ³•:
+rem    rebuild_apk.bat            è‡ªåŠ¨ç‰ˆæœ¬å·æ„å»º (é»˜è®¤, æ¨è)
+rem    rebuild_apk.bat same       ä¿æŒå½“å‰ç‰ˆæœ¬å·æ„å»º
+rem    rebuild_apk.bat check      ä»…æ£€æŸ¥ç¯å¢ƒä¸èµ„äº§åŒæ­¥çŠ¶æ€
+rem    ä»»æ„æ¨¡å¼è¿½åŠ  nopause       æ„å»ºåä¸æš‚åœ (ä¾‹: rebuild_apk.bat same nopause)
 rem
-rem  Á÷³Ì: »·¾³¼ì²é -> Í¬²½ assets -> MD5 Ğ£Ñé -> °æ±¾µİÔö
-rem        -> ÇåÀí²ĞÁô -> Gradle ¹¹½¨ -> ¸´ÖÆ APK µ½¸ùÄ¿Â¼
+rem  æµç¨‹: æ£€æŸ¥ç¯å¢ƒ -> åŒæ­¥ assets -> MD5 æ ¡éªŒ -> ç‰ˆæœ¬å·å¤„ç†
+rem        -> æ¸…ç†ç¼“å­˜ -> Gradle æ„å»º -> æ‹·è´ APK è‡³æ ¹ç›®å½•
 rem ============================================================
 
-set "MODE=auto"
-set "NOPAUSE="
-if /i "%~1"=="nopause" set "NOPAUSE=1"
+set "MODE=auto"
+set "NOPAUSE="
+
+if /i "%~1"=="nopause" set "NOPAUSE=1"
 if /i "%~2"=="nopause" set "NOPAUSE=1"
 if /i "%~1"=="same"  set "MODE=same"
 if /i "%~1"=="check" set "MODE=check"
@@ -28,48 +29,48 @@ set "ANDROID=%ROOT%android"
 set "APP=%ANDROID%\app"
 set "ASSETS=%APP%\src\main\assets\project"
 
-rem ---------- »·¾³¼ì²â ----------
+rem ---------- ç¯å¢ƒæ£€æŸ¥ ----------
 if not defined JAVA_HOME     set "JAVA_HOME=C:\Users\Administrator\jdk17\jdk-17"
 if not defined ANDROID_HOME  set "ANDROID_HOME=C:\Users\Administrator\android-sdk"
 set "GRADLE=C:\Gradle\gradle-8.7\bin\gradle.bat"
 
-echo [1/7] ¼ì²é¹¹½¨»·¾³...
+echo [1/7] æ£€æŸ¥æ„å»ºç¯å¢ƒ...
 if not exist "%JAVA_HOME%\bin\java.exe" (
-    echo [^!] ´íÎó: Î´ÕÒµ½ JDK: %JAVA_HOME%
-    echo     Çë°²×° JDK 17, »òÉèÖÃ JAVA_HOME »·¾³±äÁ¿ºóÖØÊÔ
+    echo [!] é”™è¯¯: æœªæ‰¾åˆ° JDK: %JAVA_HOME%
+    echo     è¯·å®‰è£… JDK 17 å¹¶é…ç½® JAVA_HOME ç¯å¢ƒå˜é‡
     goto :fail
 )
 if not exist "%ANDROID_HOME%\platform-tools" (
-    echo [^!] ´íÎó: Î´ÕÒµ½ Android SDK: %ANDROID_HOME%
-    echo     ÇëÉèÖÃ ANDROID_HOME »·¾³±äÁ¿ºóÖØÊÔ
+    echo [!] é”™è¯¯: æœªæ‰¾åˆ° Android SDK: %ANDROID_HOME%
+    echo     è¯·é…ç½® ANDROID_HOME ç¯å¢ƒå˜é‡
     goto :fail
 )
 if not exist "%GRADLE%" (
-    echo [^!] ´íÎó: Î´ÕÒµ½ Gradle: %GRADLE%
-    echo     Çë°²×° Gradle 8.7 µ½ C:\Gradle\gradle-8.7, »òĞŞ¸Ä±¾½Å±¾µÄ GRADLE ±äÁ¿
+    echo [!] é”™è¯¯: æœªæ‰¾åˆ° Gradle: %GRADLE%
+    echo     è¯·å®‰è£… Gradle 8.7 è‡³ C:\Gradle\gradle-8.7 æˆ–ä¿®æ”¹æœ¬è„šæœ¬ GRADLE è·¯å¾„
     goto :fail
 )
 if not exist "%ANDROID%\keystore\keystore.properties" (
-    echo [^!] ´íÎó: È±ÉÙÇ©ÃûÅäÖÃ android\keystore\keystore.properties
-    echo     Çë²Î¿¼ android\BUILD.md Ò»´ÎĞÔÉú³É keystore ºóÖØÊÔ
+    echo [!] é”™è¯¯: ç¼ºå°‘ç­¾åé…ç½® android\keystore\keystore.properties
+    echo     è¯·å‚è€ƒ android\BUILD.md ç”Ÿæˆ keystore å¹¶åœ¨æœ¬åœ°é…ç½®
     goto :fail
 )
 echo [OK] JAVA_HOME     = %JAVA_HOME%
 echo [OK] ANDROID_HOME  = %ANDROID_HOME%
 echo [OK] Gradle        = %GRADLE%
-echo [OK] Ç©ÃûÅäÖÃÒÑ¾ÍĞ÷ (android\keystore\)
+echo [OK] ç­¾åé…ç½®å·²å°±ç»ª (android\keystore\)
 
 if /i "%MODE%"=="check" (
     echo.
-    echo [*] Ä£Ê½=check: »·¾³¼ì²éÍ¨¹ı, Î´Ö´ĞĞ¹¹½¨¡£
-    echo     Ô´ÅäÖÃ   : %ROOT%config\
-    echo     APK ×Ê²ú : %ASSETS%
+    echo [*] æ¨¡å¼=check: ç¯å¢ƒæ ¡éªŒé€šè¿‡ï¼Œæœªæ‰§è¡Œå®é™…æ„å»ºã€‚
+    echo     æºç æ ¹ç›®å½• : %ROOT%config\
+    echo     APK èµ„äº§ç›®å½• : %ASSETS%
     goto :end
 )
 
-rem ---------- 1. Í¬²½×Ê²ú ----------
+rem ---------- 1. åŒæ­¥èµ„äº§ ----------
 echo.
-echo [2/7] Í¬²½ÏîÄ¿ÎÄ¼şµ½ APK ×Ê²úÄ¿Â¼...
+echo [2/7] åŒæ­¥é¡¹ç›®æ ¸å¿ƒæ–‡ä»¶è‡³ APK èµ„äº§ç›®å½•...
 xcopy /y /q "%ROOT%binance_etf_configurable.py" "%ASSETS%\" >nul
 if errorlevel 4 goto :fail
 xcopy /y /q /e /i "%ROOT%config" "%ASSETS%\config\" >nul
@@ -78,68 +79,68 @@ xcopy /y /q "%ROOT%scripts\validate_strategy_assets.py" "%ASSETS%\scripts\" >nul
 if errorlevel 4 goto :fail
 xcopy /y /q "%ROOT%requirements.txt" "%ASSETS%\" >nul
 if errorlevel 4 goto :fail
-echo [OK] ×Ê²úÍ¬²½Íê³É (binance_etf_configurable.py / config\ / scripts\ / requirements.txt)
+echo [OK] èµ„äº§åŒæ­¥å®Œæˆ (binance_etf_configurable.py / config\ / scripts\ / requirements.txt)
 
-rem ---------- 2. Ğ£Ñé×Ê²úÍ¬²½ ----------
+rem ---------- 2. æ ¡éªŒèµ„äº§åŒæ­¥ ----------
 echo.
-echo [3/7] Ğ£Ñé etf_products.json Í¬²½Ò»ÖÂĞÔ...
+echo [3/7] æ ¡éªŒ etf_products.json åŒæ­¥ä¸€è‡´æ€§...
 for /f "tokens=*" %%h in ('certutil -hashfile "%ROOT%config\etf_products.json" MD5 ^| findstr /i /r "^[0-9a-f]*$"') do set "SRC_MD5=%%h"
 for /f "tokens=*" %%h in ('certutil -hashfile "%ASSETS%\config\etf_products.json" MD5 ^| findstr /i /r "^[0-9a-f]*$"') do set "ASSET_MD5=%%h"
 if not "!SRC_MD5!"=="!ASSET_MD5!" (
-    echo [^!] ´íÎó: etf_products.json Í¬²½²»Ò»ÖÂ, ÒÑÖĞÖ¹
-    echo     Ô´ÎÄ¼ş   : !SRC_MD5!
-    echo     APK ×Ê²ú : !ASSET_MD5!
+    echo [!] é”™è¯¯: etf_products.json åŒæ­¥ä¸ä¸€è‡´ï¼Œç»ˆæ­¢æ„å»º
+    echo     æºæ–‡ä»¶ MD5   : !SRC_MD5!
+    echo     APK èµ„äº§ MD5 : !ASSET_MD5!
     goto :fail
 )
-echo [OK] MD5 Ò»ÖÂ: !SRC_MD5!
+echo [OK] MD5 ä¸€è‡´: !SRC_MD5!
 
-rem ---------- 3. °æ±¾ºÅ ----------
+rem ---------- 3. ç‰ˆæœ¬å·å¤„ç† ----------
 echo.
 if "%MODE%"=="same" (
-    echo [4/7] Ä£Ê½=same: ±£³Öµ±Ç°°æ±¾ºÅ²»±ä...
+    echo [4/7] æ¨¡å¼=same: ä¿æŒå½“å‰ç‰ˆæœ¬å·ä¸å˜...
     for /f "usebackq tokens=1,2" %%a in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%ANDROID%\bump_version.ps1" -GradleFile "%APP%\build.gradle" -Same`) do (
         set "VC=%%a"
         set "VN=%%b"
     )
 ) else (
-    echo [4/7] ×Ô¶¯µİÔö°æ±¾ºÅ, È·±£ÊÖ»ú¿É¸²¸Ç°²×°...
+    echo [4/7] è‡ªåŠ¨é€’å¢ç‰ˆæœ¬å·ï¼Œç¡®ä¿æ‰‹æœºå¯è¦†ç›–å®‰è£…...
     for /f "usebackq tokens=1,2" %%a in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%ANDROID%\bump_version.ps1" -GradleFile "%APP%\build.gradle"`) do (
         set "VC=%%a"
         set "VN=%%b"
     )
 )
 if not defined VN (
-    echo [^!] ´íÎó: °æ±¾ºÅ´¦ÀíÊ§°Ü, Çë¼ì²é android\app\build.gradle
+    echo [!] é”™è¯¯: è·å–ç‰ˆæœ¬å·å¤±è´¥ï¼Œè¯·æ£€æŸ¥ android\app\build.gradle
     goto :fail
 )
-echo [OK] ĞÂ°æ±¾: v%VN%  (versionCode %VC%)
+echo [OK] ç›®æ ‡ç‰ˆæœ¬: v%VN% (versionCode %VC%)
 
-rem ---------- 4. ÇåÀí²ĞÁô ----------
+rem ---------- 4. æ¸…ç† ----------
 echo.
-echo [5/7] Í£Ö¹ Gradle daemon ²¢ÇåÀíÉÏ´Î¹¹½¨²ĞÁô...
+echo [5/7] åœæ­¢ Gradle daemon å¹¶æ¸…ç†ç¼“å­˜...
 call "%GRADLE%" --stop >nul 2>&1
 if exist "%APP%\build\python\pip" (
     rmdir /s /q "%APP%\build\python\pip"
-    echo [OK] ÒÑÇåÀí build\python\pip
+    echo [OK] å·²æ¸…ç† build\python\pip
 ) else (
-    echo [OK] ÎŞ²ĞÁô, ÎŞĞèÇåÀí
+    echo [OK] æ— æ®‹ç•™ pip ç¼“å­˜ï¼Œè·³è¿‡
 )
 
-rem ---------- 5. ¹¹½¨ ----------
+rem ---------- 5. æ„å»º ----------
 echo.
-echo [6/7] ¿ªÊ¼ Gradle ¹¹½¨ (Ô¼ 5-8 ·ÖÖÓ, ÇëÄÍĞÄµÈ´ı)...
+echo [6/7] å¼€å§‹ Gradle æ„å»º (è¯·è€å¿ƒç­‰å¾…)...
 call "%GRADLE%" -p "%ANDROID%" :app:assembleRelease --console=plain
 if errorlevel 1 (
-    echo [^!] ¹¹½¨Ê§°Ü, Çë²é¿´ÉÏ·½´íÎóĞÅÏ¢
+    echo [!] æ„å»ºå¤±è´¥ï¼Œè¯·æŸ¥çœ‹ä¸Šæ–¹é”™è¯¯è¾“å‡º
     goto :fail
 )
 
-rem ---------- 6. ½»¸¶ ----------
+rem ---------- 6. è¾“å‡º ----------
 echo.
-echo [7/7] ¸´ÖÆ APK µ½ÏîÄ¿¸ùÄ¿Â¼...
+echo [7/7] æ‹·è´ APK è‡³æ ¹ç›®å½•...
 set "APK_SRC=%APP%\build\outputs\apk\release\app-release.apk"
 if not exist "%APK_SRC%" (
-    echo [^!] ´íÎó: Î´ÕÒµ½¹¹½¨²úÎï %APK_SRC%
+    echo [!] é”™è¯¯: æœªæ‰¾åˆ°äº§ç‰© %APK_SRC%
     goto :fail
 )
 del /q "%ROOT%BinanceETFMonitor-v*.apk" 2>nul
@@ -147,15 +148,15 @@ copy /y "%APK_SRC%" "%ROOT%BinanceETFMonitor-v%VN%-release.apk" >nul
 if errorlevel 1 goto :fail
 echo.
 echo ============================================================
-echo   [SUCCESS] APK ¹¹½¨Íê³É!
-echo   °æ±¾ : v%VN%  (versionCode %VC%)
-echo   ÎÄ¼ş : %ROOT%BinanceETFMonitor-v%VN%-release.apk
+echo   [SUCCESS] APK æ„å»ºå®Œæˆ!
+echo   ç‰ˆæœ¬ : v%VN% (versionCode %VC%)
+echo   äº§ç‰© : %ROOT%BinanceETFMonitor-v%VN%-release.apk
 echo ============================================================
 goto :end
 
 :fail
 echo.
-echo [^!] ¹¹½¨Ê§°Ü, Î´Éú³É APK¡£
+echo [!] æ„å»ºå¤±è´¥ï¼Œæœªç”Ÿæˆæœ‰æ•ˆ APKã€‚
 if not defined NOPAUSE pause
 exit /b 1
 

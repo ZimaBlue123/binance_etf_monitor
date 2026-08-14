@@ -11,12 +11,13 @@ import threading
 import traceback
 import time
 from pathlib import Path
+from typing import Any, Optional
 
 
 class _CallbackStream(io.TextIOBase):
     """把 stdout / stderr 重定向到 Kotlin 端 callback 的简易代理。"""
 
-    def __init__(self, callback, also_stdout: bool = False):
+    def __init__(self, callback: Any, also_stdout: bool = False) -> None:
         self._cb = callback
         self._also = also_stdout
         self._buf = ""
@@ -56,7 +57,7 @@ class _CallbackStream(io.TextIOBase):
                 pass
 
 
-def _emit(callback, line: str) -> None:
+def _emit(callback: Any, line: str) -> None:
     if callback is None:
         try:
             sys.stdout.write(line)
@@ -70,14 +71,15 @@ def _emit(callback, line: str) -> None:
         pass
 
 
-def _reload_main_module(main_py: Path):
-    """从 main_py 路径强制重新加载,返回 module 对象。失败抛 ImportError。"""
+def _reload_main_module(main_py: Path) -> Any:
+    """从 main_py 路径强制重新加载，返回 module 对象。失败抛 ImportError。"""
     for mod_name in list(sys.modules.keys()):
         if mod_name == "binance_etf_configurable" or mod_name.startswith(
             "binance_etf_configurable."
         ):
             del sys.modules[mod_name]
     import importlib.util
+
     spec = importlib.util.spec_from_file_location("binance_etf_configurable", str(main_py))
     if spec is None or spec.loader is None:
         raise ImportError(f"无法加载 spec: {main_py}")
@@ -87,8 +89,13 @@ def _reload_main_module(main_py: Path):
     return module
 
 
-def _dispatch_main(module, config_path: str, callback, result: list) -> None:
-    """根据 config_path 拼 argv 后调 module.main(),把退出码/异常塞 result[0]。"""
+def _dispatch_main(
+    module: Any,
+    config_path: str,
+    callback: Any,
+    result: list[tuple[int, Optional[BaseException]]],
+) -> None:
+    """根据 config_path 拼 argv 后调 module.main()，把退出码/异常塞 result[0]。"""
     if config_path:
         sys.argv = ["binance_etf_configurable.py", config_path]
     else:
@@ -105,11 +112,16 @@ def _dispatch_main(module, config_path: str, callback, result: list) -> None:
         result.append((1, e))
 
 
-def _run_in_thread(workdir: str, config_path: str, callback, result: list):
-    """在子线程跑 main(),结果(退出码 / 异常)塞进 result[0]"""
+def _run_in_thread(
+    workdir: str,
+    config_path: str,
+    callback: Any,
+    result: list[tuple[int, Optional[BaseException]]],
+) -> None:
+    """在子线程跑 main()，结果（退出码 / 异常）塞进 result[0]。"""
     project_root = Path(workdir).expanduser().resolve()
     main_py = project_root / "binance_etf_configurable.py"
-    if not main_py.exists():
+    if not main_py.is_file():
         _emit(callback, f"[run] 主脚本不存在: {main_py}\n")
         result.append((2, None))
         return
@@ -128,14 +140,19 @@ def _run_in_thread(workdir: str, config_path: str, callback, result: list):
         result.append((2, e))
 
 
-def run_with_callback(workdir: str, config_path: str = "", callback=None, timeout_sec: int = 240) -> int:
+def run_with_callback(
+    workdir: str,
+    config_path: str = "",
+    callback: Any = None,
+    timeout_sec: int = 240,
+) -> int:
     """
-    在子线程跑 main(),主线程等待,超过 timeout_sec 强制超时返回 -2。
+    在子线程跑 main()，主线程等待，超过 timeout_sec 强制超时返回 -2。
     stdout / stderr 全部转发到 callback。
     """
     project_root = Path(workdir).expanduser().resolve()
     main_py = project_root / "binance_etf_configurable.py"
-    if not main_py.exists():
+    if not main_py.is_file():
         _emit(callback, f"[run] 主脚本不存在: {main_py}\n")
         return 2
 
@@ -145,7 +162,7 @@ def run_with_callback(workdir: str, config_path: str = "", callback=None, timeou
     sys.stdout = cb_stream
     sys.stderr = cb_stream
 
-    result: list = []
+    result: list[tuple[int, Optional[BaseException]]] = []
     t0 = time.time()
     try:
         _emit(callback, f"[run] 工作目录: {project_root}\n")
@@ -160,14 +177,13 @@ def run_with_callback(workdir: str, config_path: str = "", callback=None, timeou
         )
         th.start()
 
-        # 主线程等,带心跳
+        # 主线程等待，带心跳
         last_heartbeat = t0
         while th.is_alive():
             th.join(timeout=2.0)
             now = time.time()
             if now - t0 > timeout_sec:
-                _emit(callback, f"\n[run] 超时({timeout_sec}s),放弃等待。线程在后台继续,资源会随进程释放。\n")
-                # 主线程放弃等待,后台线程 daemon=True 不会阻塞进程退出
+                _emit(callback, f"\n[run] 超时({timeout_sec}s)，放弃等待。线程在后台继续，资源会随进程释放。\n")
                 return -2
             if now - last_heartbeat > 10:
                 elapsed = int(now - t0)
@@ -182,7 +198,7 @@ def run_with_callback(workdir: str, config_path: str = "", callback=None, timeou
         _emit(callback, "\n[run] 异常结束: 子线程未返回结果\n")
         return -1
 
-    rc, exc = result[0]
+    rc, _exc = result[0]
     elapsed = int(time.time() - t0)
-    _emit(callback, f"\n[run] 完成,exit code: {rc}, 耗时: {elapsed}s\n")
+    _emit(callback, f"\n[run] 完成, exit code: {rc}, 耗时: {elapsed}s\n")
     return rc

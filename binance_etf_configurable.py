@@ -31,10 +31,11 @@ BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = BASE_DIR / "config" / "strategy_config.yaml"
 
 
-def configure_console_encoding():
+def configure_console_encoding() -> None:
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
 
@@ -42,31 +43,37 @@ def configure_console_encoding():
 configure_console_encoding()
 
 
-def load_config(path: str) -> dict[str, Any]:
+def load_config(path: str | Path) -> dict[str, Any]:
     """读取配置文件并返回字典，支持 YAML / JSON 格式。"""
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"配置文件不存在: {path}")
+    p = Path(path).expanduser().resolve()
+    if not p.is_file():
+        raise FileNotFoundError(f"配置文件不存在或不是常规文件: {path}")
     if p.suffix.lower() in [".yaml", ".yml"]:
-        with open(p, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ValueError(f"YAML 配置文件解析失败: {path} | {e}") from e
         if not isinstance(data, dict):
             raise ValueError(f"配置文件内容无效（期望 dict，实际 {type(data).__name__}）: {path}")
         return data
     if p.suffix.lower() == ".json":
-        with open(p, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"JSON 配置文件解析失败: {path} | {e}") from e
         if not isinstance(data, dict):
             raise ValueError(f"配置文件内容无效（期望 dict，实际 {type(data).__name__}）: {path}")
         return data
-    raise ValueError("仅支持 .yaml/.yml/.json 配置文件")
+    raise ValueError(f"仅支持 .yaml/.yml/.json 配置文件: {path}")
 
 
-def load_json(path: str) -> Any:
-    """读取 JSON 资产清单文件,显式抛错便于上层定位。"""
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"资产清单不存在: {path}")
+def load_json(path: str | Path) -> Any:
+    """读取 JSON 资产清单文件，显式抛错便于上层定位。"""
+    p = Path(path).expanduser().resolve()
+    if not p.is_file():
+        raise FileNotFoundError(f"资产清单不存在或不是常规文件: {path}")
     try:
         with p.open("r", encoding="utf-8") as f:
             return json.load(f)
@@ -82,11 +89,15 @@ def safe_float(x: Any, default: float = 0.0) -> float:
 
 
 def clamp(x: float, low: float, high: float) -> float:
+    if low > high:
+        low, high = high, low
     return max(low, min(high, x))
 
 
 def markdown_to_text(content: str) -> str:
     """将 Markdown 报告转为纯文本：去除加粗标记与 emoji 前缀。"""
+    if not isinstance(content, str):
+        return ""
     text = content.replace("**", "").replace("***", "")
     for emoji in ("📊 ", "🟢 ", "🟡 ", "🔴 ", "🟠 ", "⚪ ", "🔥 ", "🧊 ", "🚀 ", "📝 ", "✅ "):
         text = text.replace(emoji, "")
@@ -94,103 +105,124 @@ def markdown_to_text(content: str) -> str:
 
 
 class QuantReporter:
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str | Path):
         self.config_path = Path(config_path).expanduser().resolve()
         parent_name = self.config_path.parent.name
         base = self.config_path.parent
         self.project_dir = base.parent if parent_name == "config" else base
         self._pending_debug_logs: list[str] = []
-        self.cfg = load_config(str(self.config_path))
+        self.cfg = load_config(self.config_path)
 
+        if "work_dir" not in self.cfg or not self.cfg["work_dir"]:
+            raise ValueError(f"配置缺少必要字段 'work_dir': {self.config_path}")
         self.work_dir = self._resolve_path(self.cfg["work_dir"])
         self.work_dir.mkdir(parents=True, exist_ok=True)
 
-        paths = self.cfg["paths"]
+        paths = self.cfg.get("paths")
+        if not isinstance(paths, dict):
+            raise ValueError(f"配置缺少或无效的 'paths' 字段: {self.config_path}")
+        for req_path_key in ("log_file", "history_file", "etf_products_file", "crypto_products_file"):
+            if req_path_key not in paths:
+                raise ValueError(f"配置 paths 缺少必要字段 '{req_path_key}': {self.config_path}")
+
         self.log_file = self.work_dir / paths["log_file"]
         self.history_file = self.work_dir / paths["history_file"]
         self.etf_file = self._resolve_path(paths["etf_products_file"])
         self.crypto_file = self._resolve_path(paths["crypto_products_file"])
 
-        os.environ["TZ"] = self.cfg.get("timezone", "Asia/Shanghai")
+        os.environ["TZ"] = str(self.cfg.get("timezone", "Asia/Shanghai"))
         try:
             time.tzset()
         except (AttributeError, OSError):
             # Windows / 嵌入式环境不支持 tzset,仅记录后继续
-            # 注意:此时 logger 尚未创建,先暂存到待补打的列表
             self._pending_debug_logs.append(
                 f"time.tzset() 不可用,使用环境默认时区 TZ={os.environ.get('TZ', '<unset>')}"
             )
 
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            handlers=[
-                logging.FileHandler(self.log_file, encoding="utf-8"),
-                logging.StreamHandler(sys.stdout),
-            ],
-        )
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger("binance_etf_monitor")
+        self.logger.setLevel(logging.INFO)
+        if not self.logger.handlers:
+            formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+            try:
+                fh = logging.FileHandler(self.log_file, encoding="utf-8")
+                fh.setFormatter(formatter)
+                self.logger.addHandler(fh)
+            except OSError as e:
+                print(f"[!] 无法初始化文件日志记录器: {e}", file=sys.stderr)
+            sh = logging.StreamHandler(sys.stdout)
+            sh.setFormatter(formatter)
+            self.logger.addHandler(sh)
+
         # 刷新 logger 初始化前积累的调试信息
         for msg in self._pending_debug_logs:
             self.logger.debug(msg)
         self._pending_debug_logs.clear()
 
         self.session = self._build_session()
-        # 资产清单在 logger 初始化之前加载,失败时 logger 尚未就绪,用 print 兜底
+        # 资产清单在 logger 初始化后加载
         try:
-            self.crypto_products = load_json(str(self.crypto_file))
+            self.crypto_products = load_json(self.crypto_file)
         except (FileNotFoundError, ValueError) as e:
-            print(f"[!] 加密资产清单加载失败: {e}", file=sys.stderr)
+            self.logger.error(f"[!] 加密资产清单加载失败: {e}")
             raise
         try:
-            self.etf_products = load_json(str(self.etf_file))
+            self.etf_products = load_json(self.etf_file)
         except (FileNotFoundError, ValueError) as e:
-            print(f"[!] ETF 资产清单加载失败: {e}", file=sys.stderr)
+            self.logger.error(f"[!] ETF 资产清单加载失败: {e}")
             raise
+
         self.max_neutral_funds_in_report = int(
             self.cfg.get("fund", {}).get("report", {}).get("max_neutral_items", 20)
         )
 
-    def _resolve_path(self, raw_path: str) -> Path:
+    def _resolve_path(self, raw_path: str | Path) -> Path:
         p = Path(raw_path).expanduser()
         if p.is_absolute():
             return p
         return (self.project_dir / p).resolve()
 
     def _build_session(self) -> requests.Session:
-        ncfg = self.cfg["network"]
+        ncfg = self.cfg.get("network", {})
+        retry_total = int(ncfg.get("retry_total", 3))
+        backoff_factor = float(ncfg.get("backoff_factor", 0.5))
+        status_forcelist = ncfg.get("status_forcelist", [500, 502, 503, 504])
+        user_agent = str(ncfg.get("user_agent", "Mozilla/5.0"))
+
         retry = Retry(
-            total=ncfg["retry_total"],
-            connect=ncfg["retry_total"],
-            read=ncfg["retry_total"],
-            backoff_factor=ncfg["backoff_factor"],
-            status_forcelist=ncfg["status_forcelist"],
+            total=retry_total,
+            connect=retry_total,
+            read=retry_total,
+            backoff_factor=backoff_factor,
+            status_forcelist=status_forcelist,
             allowed_methods=["GET"],
         )
         adapter = HTTPAdapter(max_retries=retry, pool_connections=50, pool_maxsize=100)
         s = requests.Session()
         s.mount("https://", adapter)
         s.mount("http://", adapter)
-        s.headers.update({"User-Agent": ncfg["user_agent"]})
+        s.headers.update({"User-Agent": user_agent})
         return s
 
     def safe_fetch(
         self,
         url: str,
-        params: Optional[dict] = None,
-        headers: Optional[dict] = None,
+        params: Optional[dict[str, Any]] = None,
+        headers: Optional[dict[str, str]] = None,
     ) -> Optional[requests.Response]:
-        ncfg = self.cfg["network"]
-        timeout = (ncfg["timeout_connect"], ncfg["timeout_read"])
-        merged_headers = {}
+        ncfg = self.cfg.get("network", {})
+        timeout = (
+            float(ncfg.get("timeout_connect", 5.0)),
+            float(ncfg.get("timeout_read", 10.0)),
+        )
+        merged_headers: dict[str, str] = {}
         if headers:
             merged_headers.update(headers)
         try:
             r = self.session.get(url, params=params, headers=merged_headers or None, timeout=timeout)
             r.raise_for_status()
             return r
-        except (RequestException, OSError) as e:
+        except (RequestException, OSError, TimeoutError) as e:
             self.logger.error(f"[-] 请求失败: {url} | {e}")
             return None
         except ValueError as e:
@@ -198,7 +230,7 @@ class QuantReporter:
             return None
 
     def load_history(self) -> dict[str, Any]:
-        if not self.history_file.exists():
+        if not self.history_file.is_file():
             return {}
         try:
             with open(self.history_file, "r", encoding="utf-8") as f:
@@ -208,24 +240,29 @@ class QuantReporter:
             self.logger.warning(f"[!] 历史文件读取异常，使用空历史: {e}")
             return {}
 
-    def atomic_write(self, data: dict[str, Any]):
-        """原子写入历史文件:先写 .tmp 再 replace;Windows 上 replace 偶发占用冲突时回退为直接覆盖。"""
+    def atomic_write(self, data: dict[str, Any]) -> None:
+        """原子写入历史文件：先写 .tmp 再 replace；Windows 发生锁定冲突时回退为直接覆盖。"""
         self.history_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.history_file.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        tmp = self.history_file.with_name(f"{self.history_file.stem}.tmp.{os.getpid()}{self.history_file.suffix}")
         try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
             tmp.replace(self.history_file)
         except OSError as e:
             self.logger.warning(f"[!] atomic replace 失败,回退为直接覆盖: {e}")
-            with open(self.history_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
             try:
-                tmp.unlink()
-            except OSError:
-                pass
+                with open(self.history_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            except OSError as write_err:
+                self.logger.error(f"[-] 历史文件直接落盘失败: {write_err}")
+            finally:
+                if tmp.exists():
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
 
-    def write_report_files(self, today: str, report_content: str):
+    def write_report_files(self, today: str, report_content: str) -> tuple[Path, Path]:
         report_dir = self.work_dir / "reports"
         report_dir.mkdir(parents=True, exist_ok=True)
         md_file = report_dir / f"strategy_report_{today}.md"
@@ -270,13 +307,17 @@ class QuantReporter:
             data = res.json()
             if not isinstance(data, list) or len(data) < max(ccfg["ma_slow"] + 5, 80):
                 return None
-            rows = [{
-                "open": safe_float(x[1]),
-                "high": safe_float(x[2]),
-                "low": safe_float(x[3]),
-                "close": safe_float(x[4]),
-                "volume": safe_float(x[5]),
-            } for x in data]
+            rows = [
+                {
+                    "open": safe_float(x[1]),
+                    "high": safe_float(x[2]),
+                    "low": safe_float(x[3]),
+                    "close": safe_float(x[4]),
+                    "volume": safe_float(x[5]),
+                }
+                for x in data
+                if isinstance(x, (list, tuple)) and len(x) >= 6
+            ]
             return pd.DataFrame(rows)
         except Exception as e:
             self.logger.error(f"[-] 解析 Binance 日K失败 {symbol}: {e}")
@@ -284,48 +325,58 @@ class QuantReporter:
 
     def _fetch_crypto_daily_ohlcv_binance_us(self, symbol: str) -> Optional[pd.DataFrame]:
         """通过 Binance.US 获取日线 OHLCV（Binance 主站在部分地区被封）。"""
-        ccfg = self.cfg["crypto"]
+        ccfg = self.cfg.get("crypto", {})
         url = "https://api.binance.us/api/v3/klines"
-        params = {"symbol": f"{symbol}USDT", "interval": ccfg["interval"], "limit": ccfg["kline_limit"]}
+        params = {"symbol": f"{symbol}USDT", "interval": ccfg.get("interval", "1d"), "limit": ccfg.get("kline_limit", 100)}
         res = self.safe_fetch(url, params=params)
         if not res:
             return None
         try:
             data = res.json()
-            if not isinstance(data, list) or len(data) < max(ccfg["ma_slow"] + 5, 80):
+            if not isinstance(data, list) or len(data) < max(int(ccfg.get("ma_slow", 60)) + 5, 80):
                 return None
-            rows = [{
-                "open": safe_float(x[1]),
-                "high": safe_float(x[2]),
-                "low": safe_float(x[3]),
-                "close": safe_float(x[4]),
-                "volume": safe_float(x[5]),
-            } for x in data]
+            rows = [
+                {
+                    "open": safe_float(x[1]),
+                    "high": safe_float(x[2]),
+                    "low": safe_float(x[3]),
+                    "close": safe_float(x[4]),
+                    "volume": safe_float(x[5]),
+                }
+                for x in data
+                if isinstance(x, (list, tuple)) and len(x) >= 6
+            ]
             return pd.DataFrame(rows)
         except Exception as e:
             self.logger.error(f"[-] 解析 Binance.US 日K失败 {symbol}: {e}")
             return None
 
     def _fetch_crypto_daily_ohlcv_kucoin(self, symbol: str) -> Optional[pd.DataFrame]:
-        ccfg = self.cfg["crypto"]
+        ccfg = self.cfg.get("crypto", {})
         url = "https://api.kucoin.com/api/v1/market/candles"
         # KuCoin 默认只返回最近部分数据，需显式传递时间范围或依赖其默认 limit
-        params = {"type": "1day", "symbol": f"{symbol}-USDT", "pageSize": str(ccfg["kline_limit"])}
+        params = {"type": "1day", "symbol": f"{symbol}-USDT", "pageSize": str(ccfg.get("kline_limit", 100))}
         res = self.safe_fetch(url, params=params)
         if not res:
             return None
         try:
             payload = res.json()
-            data = payload.get("data", [])
-            if not isinstance(data, list) or len(data) < max(ccfg["ma_slow"] + 5, 80):
+            if not isinstance(payload, dict):
                 return None
-            rows = [{
-                "open": safe_float(x[1]),
-                "close": safe_float(x[2]),
-                "high": safe_float(x[3]),
-                "low": safe_float(x[4]),
-                "volume": safe_float(x[5]),
-            } for x in reversed(data)]
+            data = payload.get("data", [])
+            if not isinstance(data, list) or len(data) < max(int(ccfg.get("ma_slow", 60)) + 5, 80):
+                return None
+            rows = [
+                {
+                    "open": safe_float(x[1]),
+                    "close": safe_float(x[2]),
+                    "high": safe_float(x[3]),
+                    "low": safe_float(x[4]),
+                    "volume": safe_float(x[5]),
+                }
+                for x in reversed(data)
+                if isinstance(x, (list, tuple)) and len(x) >= 6
+            ]
             return pd.DataFrame(rows)
         except Exception as e:
             self.logger.error(f"[-] 解析 KuCoin 日K失败 {symbol}: {e}")
@@ -512,10 +563,15 @@ class QuantReporter:
             data = res.json()
             if not isinstance(data, dict):
                 return None, None
-            items = data.get("Data", {}).get("LSJZList", [])
-            if not items or not isinstance(items, list):
+            d_data = data.get("Data")
+            if not isinstance(d_data, dict):
+                return None, None
+            items = d_data.get("LSJZList")
+            if not isinstance(items, list) or not items:
                 return None, None
             item = items[0]
+            if not isinstance(item, dict):
+                return None, None
             price = safe_float(item.get("DWJZ"), math.nan)
             daily = safe_float(item.get("JZZZL"), math.nan)
             if math.isnan(price):
